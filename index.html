@@ -13,7 +13,7 @@
   --tx:#ffffff;--tx2:#999999;--tx3:#555555;
   --bd:#2a2a2a;--bd2:#333333;
   --r:14px;--r2:20px;
-  --blu:#185FA5;--blubg:rgba(255,107,53,.12);--bludk:#FF6B35;
+  --blu:#5B9BD5;--blubg:rgba(24,95,165,.18);--bludk:#8FBCE6;
   --acc:#FF6B35;--acc-bg:rgba(255,107,53,.12);--acc-glow:rgba(255,107,53,.25);
   --grn:#00D4AA;--grn-bg:rgba(0,212,170,.12);
   --red:#FF3B5C;--red-bg:rgba(255,59,92,.12);
@@ -23,7 +23,7 @@ body.light{
   --bg:#faf7f2;--bg2:#ffffff;--bg3:#f3efe7;
   --tx:#2a2620;--tx2:#6b5f4d;--tx3:#8a7d68;
   --bd:#f3efe7;--bd2:#e5ddd0;
-  --blu:#185FA5;--blubg:rgba(201,80,30,.12);--bludk:#C9501E;
+  --blu:#185FA5;--blubg:rgba(24,95,165,.10);--bludk:#12497F;
   --acc:#C9501E;--acc-bg:rgba(201,80,30,.12);--acc-glow:rgba(201,80,30,.2);
   --grn:#0A8A6E;--grn-bg:rgba(10,138,110,.12);
   --red:#C13B4E;--red-bg:rgba(193,59,78,.11);
@@ -36,7 +36,6 @@ body.light .nb.on{box-shadow:0 1px 3px rgba(201,80,30,.15)}
 body.light .btn{border-color:var(--bd2)}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--tx);min-height:100vh}
 .app{max-width:700px;margin:0 auto;padding:14px}
-.avatar-circle{width:30px;height:30px;border-radius:10px;background:var(--acc);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#000;flex-shrink:0}
 .avatar-circle{width:30px;height:30px;border-radius:10px;background:var(--acc);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#000;flex-shrink:0}
 .nav{display:flex;gap:3px;margin-bottom:14px;background:var(--bg2);padding:3px;border-radius:var(--r2);overflow-x:auto;scrollbar-width:none}
 .nav::-webkit-scrollbar{display:none}
@@ -443,8 +442,9 @@ let cmpMode=false,cmpIds=[],curId=null,lastMet=null;
 
 const LS={
   get:function(k){try{var v=localStorage.getItem(k);return v?JSON.parse(v):null;}catch(e){return null;}},
-  set:function(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
+  set:function(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){alert('ATTENZIONE: salvataggio fallito ('+(e&&e.name==='QuotaExceededError'?'spazio localStorage esaurito':e.message)+'). Esporta subito il DB per non perdere i dati!');}}
 };
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
 function load(){
   P=LS.get('tp');W=LS.get('tw')||[];SH=LS.get('ts')||[];TG=LS.get('tt')||[];planDone=LS.get('tpd')||{};
@@ -489,7 +489,7 @@ function boot(){
   safeCall(checkWeeklySummary,'checkWeeklySummary');
   safeCall(checkChangelog,'checkChangelog');
 }
-function td(){return new Date().toISOString().slice(0,10);}
+function td(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function isToday(dateStr){
   if(!dateStr)return false;
   var today=new Date();
@@ -920,10 +920,10 @@ function renderHist(){
     if(w.meteo)met+=mico(w.meteo.code)+' '+w.meteo.temp+'C';
     if(w.meteoNotes)met+=(met?' · ':'')+w.meteoNotes;
     return '<div class="wi" onclick="wiClick('+w.id+')" style="'+(sel2?'background:var(--bg2);padding:9px 8px;margin:0 -8px;':'')+'">'+
-      '<div class="wt"><div><span style="font-size:12px;font-weight:500">'+w.date+'</span><span class="tag">'+w.type+'</span>'+(w.name?'<span class="pill">'+w.name+'</span>':'')+(w.laps.length?'<span class="pill">'+w.laps.length+'L</span>':'')+'</div>'+
+      '<div class="wt"><div><span style="font-size:12px;font-weight:500">'+w.date+'</span><span class="tag">'+w.type+'</span>'+(w.name?'<span class="pill">'+esc(w.name)+'</span>':'')+(w.laps.length?'<span class="pill">'+w.laps.length+'L</span>':'')+'</div>'+
       '<div style="display:flex;align-items:center;gap:6px">'+(cmpMode&&sel2?'<span style="font-size:10px;color:var(--blu)">v</span>':'')+'<span class="rdot" style="background:'+rClr(w.rpe)+'"></span></div></div>'+
       '<div class="ws"><span><strong>'+w.dist+'</strong>km</span>'+(w.timeSecs?'<span>'+fT(w.timeSecs)+'</span>':'')+'<span>'+pace+'</span>'+(w.hr?'<span>'+w.hr+'bpm</span>':'')+(sh?'<span style="color:var(--tx3)">'+sh.name+'</span>':'')+(met?'<span style="color:var(--tx3)">'+met+'</span>':'')+'</div>'+
-      (w.notes?'<div class="wn">"'+w.notes.slice(0,70)+(w.notes.length>70?'...:':'')+'"</div>':'')+
+      (w.notes?'<div class="wn">"'+esc(w.notes.slice(0,70))+(w.notes.length>70?'...':'')+'"</div>':'')+
       '</div>';
   }).join('');
 }
@@ -951,7 +951,7 @@ function openD(id){
   if(!w.meteo&&(w.meteoNotes||w.windNote)){var wn=w.meteoNotes||w.windNote;h+='<div class="metbar" style="margin-bottom:10px">Condizioni: '+wn+'</div>';}
   if(sh)h+='<p style="font-size:11px;color:var(--tx2);margin-bottom:4px">Scarpe: '+sh.name+'</p>';
   if(w.planKey){var planData2=(window._customPlan&&window._customPlan.length)?window._customPlan:PLAN;var planItem=planData2.find(function(p){return (p.fase+'|'+p.sett+'|'+p.giorno+'|'+p.n)===w.planKey;});if(planItem)h+='<p style="font-size:11px;color:var(--blu);margin-bottom:8px"><i class="ti ti-calendar-check"></i> Piano: '+planItem.sett+' – '+planItem.desc.slice(0,50)+'</p>';}
-  if(w.notes)h+='<p style="font-size:12px;color:var(--tx2);font-style:italic;margin-bottom:10px;padding:8px;background:var(--bg2);border-radius:var(--r)">"'+w.notes+'"</p>';
+  if(w.notes)h+='<p style="font-size:12px;color:var(--tx2);font-style:italic;margin-bottom:10px;padding:8px;background:var(--bg2);border-radius:var(--r)">"'+esc(w.notes)+'"</p>';
   h+=buildZoneChart(w);
   if(w.laps&&w.laps.length){
     h+=buildPaceKmChart(w);
@@ -1743,7 +1743,7 @@ function openCoachNotes(id){
   var notesHtml=notes.length?notes.map(function(n,i){
     return '<div style="padding:8px;background:var(--bg2);border-radius:var(--r);margin-bottom:6px;position:relative">'+
       '<div style="font-size:10px;color:var(--tx3);margin-bottom:4px">'+n.date+'</div>'+
-      '<div style="font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word">'+n.text+'</div>'+
+      '<div style="font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word">'+esc(n.text)+'</div>'+
       '<button onclick="deleteCoachNote('+id+','+i+')" style="position:absolute;top:6px;right:6px;background:none;border:none;color:var(--tx3);cursor:pointer;font-size:12px">&#10005;</button>'+
       '</div>';
   }).join(''):'<p style="font-size:12px;color:var(--tx3);text-align:center;padding:12px">Nessuna analisi salvata</p>';
@@ -3941,8 +3941,12 @@ function renderYearComparison(){
 function calcDailyTrimp(){
   // Build a map of date→TRIMP for every day with a workout
   var byDate={};
+  // Passo medio reale (min/km) dalle sedute con tempo registrato; fallback 5.0
+  var tSum=0,dSum=0;
+  W.forEach(function(w){if(w.timeSecs&&w.dist){tSum+=w.timeSecs;dSum+=w.dist;}});
+  var avgPaceMin=dSum>0?(tSum/60)/dSum:5.0;
   W.forEach(function(w){
-    var mins=w.timeSecs?w.timeSecs/60:(w.dist?w.dist*6:30);
+    var mins=w.timeSecs?w.timeSecs/60:(w.dist?w.dist*avgPaceMin:30);
     var rpe=w.rpe||5;
     var trimp=Math.round(mins*rpe);
     byDate[w.date]=(byDate[w.date]||0)+trimp;
