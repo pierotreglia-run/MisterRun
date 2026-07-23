@@ -362,14 +362,10 @@ textarea{resize:vertical;min-height:56px}
   <div class="card"><p class="st">Archiviate</p><div id="shoes-arc"><p class="empty">Nessuna</p></div></div>
 </div>
 <div id="tab-plan" class="sec"><div class="card">
-  <p class="st">Piano completo - 68 sessioni</p>
+  <p class="st" id="plan-title">Piano completo</p>
   <div class="fr">
     <select id="pff" onchange="renderPlan()">
       <option value="">Tutte le fasi</option>
-      <option value="FASE1">Fase 1 Transizione</option>
-      <option value="FASE2">Fase 2 Estiva</option>
-      <option value="FASE3">Fase 3 Cantiere PB</option>
-      <option value="GARA">Gara</option>
     </select>
     <select id="pft" onchange="renderPlan()"><option value="">Tutti i tipi</option>
 <option value="Recupero">Recupero</option>
@@ -1397,23 +1393,36 @@ function renderShoes(){
     };
   });
 }
-function faseKey(fase){
-  fase=fase||'';
-  if(fase.indexOf('1')>=0)return 'FASE1';
-  if(fase.indexOf('2')>=0)return 'FASE2';
-  if(fase.indexOf('3')>=0)return 'FASE3';
-  return 'GARA';
+function syncFaseFilterOptions(planData){
+  var sel=document.getElementById('pff');
+  if(!sel)return[];
+  var seen=[];
+  planData.forEach(function(p){if(p.fase&&seen.indexOf(p.fase)<0)seen.push(p.fase);});
+  var sig=seen.join('|');
+  if(sel.dataset.faseSig===sig)return seen; // fasi invariate, non ricostruire il DOM
+  var prevVal=sel.value;
+  var optHtml='<option value="">Tutte le fasi</option>';
+  seen.forEach(function(f){optHtml+='<option value="'+esc(f)+'">'+esc(f)+'</option>';});
+  sel.innerHTML=optHtml;
+  sel.value=seen.indexOf(prevVal)>=0?prevVal:'';
+  sel.dataset.faseSig=sig;
+  return seen;
 }
 function renderPlan(){
   var planData=(window._customPlan&&window._customPlan.length)?window._customPlan:PLAN;
+  var faseList=syncFaseFilterOptions(planData);
+  var titleEl=document.getElementById('plan-title');
+  if(titleEl)titleEl.textContent='Piano completo - '+planData.length+' sessioni';
   var currentWeek=getCurrentPlanWeek();
   var fase=gi('pff'),tipo=gi('pft');
   var fl=planData.filter(function(p){
-    var fok=!fase||(fase==='FASE1'&&p.fase.indexOf('1')>=0)||(fase==='FASE2'&&p.fase.indexOf('2')>=0)||(fase==='FASE3'&&p.fase.indexOf('3')>=0)||(fase==='GARA'&&p.fase.indexOf('GARA')>=0);
+    var fok=!fase||p.fase===fase;
     var tok=!tipo||p.tipo===tipo;
     return fok&&tok;
   });
-  var fClr={'FASE1':'#2E86AB','FASE2':'#1D9E75','FASE3':'#E87C2E','GARA':'#A32D2D'};
+  var faseColorPalette=['#2E86AB','#1D9E75','#E87C2E','#A32D2D','#8B5CF6','#EF9F27','#5B9BD5','#C9501E'];
+  var fClr={};
+  faseList.forEach(function(f,i){fClr[f]=faseColorPalette[i%faseColorPalette.length];});
   window._renderedPlan=fl;
   // Accordion week grouping
   // Build planKey→linked count lookup
@@ -1442,13 +1451,12 @@ function renderPlan(){
     var key=(p.fase||'')+'|'+(p.sett||'')+'|'+(p.giorno||'')+'|'+(p.n||'');
     var safeKey=key.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
     var done=planDone[key]||false;
-    var fk=faseKey(p.fase||'');
     var isCurrWeek=currentWeek&&p.sett===currentWeek;
     return '<div class="pi'+(done?' done':'')+(isCurrWeek?' curr-week':'')+'">'+
       '<div style="display:flex;align-items:flex-start;gap:8px">'+
       '<input type="checkbox" style="margin-top:2px;width:16px;height:16px;accent-color:var(--grn);cursor:pointer;flex-shrink:0"'+(done?' checked':'')+' onchange="togPlan(\''+safeKey+'\',this)">'+
       '<div style="flex:1">'+
-      '<div class="pfase"><span style="color:'+(fClr[fk]||'var(--tx3)')+'">&#9679;</span> '+(p.fase||'')+' - '+(p.sett||'')+' - '+(p.giorno||'')+'</div>'+
+      '<div class="pfase"><span style="color:'+(fClr[p.fase]||'var(--tx3)')+'">&#9679;</span> '+(p.fase||'')+' - '+(p.sett||'')+' - '+(p.giorno||'')+'</div>'+
       '<div class="pdesc">'+(p.nome?'<strong>'+p.nome+'</strong> — ':'')+(p.desc||'')+'</div>'+
       '<div class="pmeta">'+(p.passo&&p.passo!=='-'?p.passo:'')+(p.fc&&p.fc!=='n.a.'&&p.fc!=='-'?' - FC '+p.fc:'')+'</div>'+
       (p.note?'<div style="font-size:10px;color:var(--amb);margin-top:2px">'+p.note+'</div>':'')+
@@ -2745,8 +2753,23 @@ function renderDashboard(){
       '</div>';
   }
 
-  // ── RECORD MENSILE — motivazione a superare il proprio massimo ────────────
+  // ── RECORD SETTIMANA + MESE — motivazione a superare il proprio massimo ───
   (function(){
+    // Raggruppa allenamenti per settimana (lunedì come chiave)
+    var byWeek={};
+    W.forEach(function(w){
+      var d=new Date(w.date);
+      var dw=d.getDay();var diff=dw===0?6:dw-1;
+      var mon=new Date(d);mon.setDate(d.getDate()-diff);mon.setHours(0,0,0,0);
+      var wk=mon.getFullYear()+'-'+String(mon.getMonth()+1).padStart(2,'0')+'-'+String(mon.getDate()).padStart(2,'0');
+      if(!byWeek[wk])byWeek[wk]={km:0,count:0,monday:mon};
+      byWeek[wk].km+=(w.dist||0);
+      byWeek[wk].count++;
+    });
+    var weekKeys=Object.keys(byWeek);
+    var thisWeekKey=thisMonday.getFullYear()+'-'+String(thisMonday.getMonth()+1).padStart(2,'0')+'-'+String(thisMonday.getDate()).padStart(2,'0');
+
+    // Raggruppa allenamenti per mese
     var byMonth={};
     W.forEach(function(w){
       var m=w.date.slice(0,7); // YYYY-MM
@@ -2754,21 +2777,45 @@ function renderDashboard(){
       byMonth[m].km+=(w.dist||0);
       byMonth[m].count++;
     });
-    var months=Object.keys(byMonth);
-    if(!months.length)return;
-    var bestMonth=months.reduce(function(a,b){return byMonth[a].km>byMonth[b].km?a:b;});
-    var best=byMonth[bestMonth];
+    var monthKeys=Object.keys(byMonth);
     var currentMonthKey=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
-    var isCurrentBest=bestMonth===currentMonthKey;
-    var monthLabel=new Date(bestMonth+'-01').toLocaleDateString('it-IT',{month:'long',year:'numeric'});
 
-    h+='<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r2);padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;gap:12px">'+
-      '<div style="font-size:24px">'+(isCurrentBest?'🔥':'🏆')+'</div>'+
-      '<div style="flex:1">'+
-      '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em">'+(isCurrentBest?'Stai battendo il record!':'Record mensile')+'</div>'+
-      '<div style="font-size:13px;font-weight:700;color:var(--tx);margin-top:2px">'+best.km.toFixed(0)+'km · '+best.count+' uscite</div>'+
-      '<div style="font-size:10px;color:var(--tx3);margin-top:1px;text-transform:capitalize">'+monthLabel+'</div>'+
-      '</div></div>';
+    if(!weekKeys.length&&!monthKeys.length)return;
+
+    // Costruisce una card di record dato un gruppo, la chiave corrente e il valore corrente
+    function recordCard(label,groupObj,keys,currentKey,currentVal,periodLabelFn){
+      if(!keys.length)return '';
+      var bestKey=keys.reduce(function(a,b){return groupObj[a].km>groupObj[b].km?a:b;});
+      var best=groupObj[bestKey];
+      var isCurrentBest=bestKey===currentKey;
+      var gap=Math.max(0,best.km-currentVal);
+      var subLine;
+      if(isCurrentBest){
+        subLine='<div style="font-size:10px;color:#1D9E75;margin-top:4px;font-weight:700">🔥 Sei qui adesso!</div>';
+      } else if(gap<0.15){
+        subLine='<div style="font-size:10px;color:var(--amb);margin-top:4px;font-weight:700">Quasi al record! (-'+gap.toFixed(1)+'km)</div>';
+      } else {
+        subLine='<div style="font-size:10px;color:var(--tx3);margin-top:4px">-'+gap.toFixed(1)+'km dal record ('+currentVal.toFixed(1)+'km ora)</div>';
+      }
+      return '<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r2);padding:12px">'+
+        '<div style="font-size:10px;color:var(--tx3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">'+(isCurrentBest?'🔥':'🏆')+' Record '+label+'</div>'+
+        '<div style="font-size:20px;font-weight:800;color:var(--tx);letter-spacing:-.5px">'+best.km.toFixed(1)+'<span style="font-size:11px;font-weight:400;color:var(--tx2)">km</span></div>'+
+        '<div style="font-size:10px;color:var(--tx3);margin-top:2px;text-transform:capitalize">'+periodLabelFn(bestKey,best)+' · '+best.count+' uscite</div>'+
+        subLine+
+        '</div>';
+    }
+
+    var weekCard=recordCard('settimanale',byWeek,weekKeys,thisWeekKey,thisKm,function(k,b){
+      var mE=new Date(b.monday);mE.setDate(b.monday.getDate()+6);
+      return b.monday.getDate()+'/'+(b.monday.getMonth()+1)+'–'+mE.getDate()+'/'+(mE.getMonth()+1);
+    });
+    var monthCard=recordCard('mensile',byMonth,monthKeys,currentMonthKey,monthKm,function(k){
+      return new Date(k+'-01').toLocaleDateString('it-IT',{month:'long',year:'numeric'});
+    });
+
+    if(weekCard||monthCard){
+      h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'+weekCard+monthCard+'</div>';
+    }
   })();
 
   // ── CARD 2: Prossima seduta + ultime 3 ────────────────────────────────────
