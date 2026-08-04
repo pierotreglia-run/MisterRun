@@ -3858,8 +3858,18 @@ function buildPaceKmChart(w){
   var barW=(W_C-pad*2)/laps.length-3;
 
   // Determine trend: negative split (getting faster) vs positive split (slowing down)
-  var firstHalf=paces.slice(0,Math.ceil(paces.length/2));
-  var secondHalf=paces.slice(Math.ceil(paces.length/2));
+  // Se ci sono lap di qualità (ripetute), isola SOLO quelli per il confronto:
+  // altrimenti riscaldamento e recuperi lenti mescolati in mezzo falsano
+  // completamente il raffronto prima-metà/seconda-metà (un riscaldamento lento
+  // a inizio sessione fa sembrare "positive split" anche ripetute in netta
+  // progressione). Su una sessione continua senza fasi (es. un lungo semplice)
+  // si guarda invece l'intera sessione, che in quel caso è corretto.
+  var qLapsForTrend=laps.filter(function(l){return l.phase==='Corsa'||l.phase==='Ripetuta';});
+  var isolatedQuality=qLapsForTrend.length>=2;
+  var trendLaps=isolatedQuality?qLapsForTrend:laps;
+  var trendPaces=trendLaps.map(function(l){return passoToSecs(l.passo);});
+  var firstHalf=trendPaces.slice(0,Math.ceil(trendPaces.length/2));
+  var secondHalf=trendPaces.slice(Math.ceil(trendPaces.length/2));
   var avgFirst=firstHalf.reduce(function(a,b){return a+b;},0)/firstHalf.length;
   var avgSecond=secondHalf.reduce(function(a,b){return a+b;},0)/secondHalf.length;
   var isNegSplit=avgSecond<avgFirst;
@@ -3879,7 +3889,12 @@ function buildPaceKmChart(w){
   });
   svg+='</svg>';
 
-  var trendLabel=isNegSplit?'Negative split — hai chiuso più forte 💪':'Positive split — partito forte, calato nel finale';
+  var trendLabel;
+  if(isolatedQuality){
+    trendLabel=isNegSplit?'Negative split nelle ripetute — chiuse più forte 💪':'Positive split nelle ripetute — partite forte, calate nel finale';
+  } else {
+    trendLabel=isNegSplit?'Negative split — hai chiuso più forte 💪':'Positive split — partito forte, calato nel finale';
+  }
   var trendColor=isNegSplit?'var(--grn)':'var(--amb)';
 
   return '<p style="font-size:12px;font-weight:500;margin:14px 0 6px">Andatura km per km</p>'+
