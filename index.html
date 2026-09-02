@@ -827,17 +827,27 @@ function toObj(hdr,line){
 function gv(r){
   for(var i=1;i<arguments.length;i++){var k=arguments[i];if(r[k]!==undefined&&r[k]!==''&&r[k]!==null)return r[k];}return'';
 }
+function normNum(s){
+  // Garmin esporta alcuni campi numerici in formato italiano (virgola come
+  // separatore decimale, es. "0,83"): senza normalizzare, parseFloat si ferma
+  // alla virgola e legge solo la parte intera, azzerando silenziosamente ogni
+  // valore sotto l'unità (es. "0,83km" diventerebbe 0 invece di 0.83).
+  if(s===undefined||s===null)return '';
+  s=String(s).trim();
+  if(s===''||s==='--')return '';
+  return s.replace(',', '.');
+}
 function lapObj(r,idx,struct){
-  var dist=parseFloat(gv(r,'Distanza km','Distanza'))||0;
+  var dist=parseFloat(normNum(gv(r,'Distanza km','Distanza')))||0;
   return{lap:gv(r,'Lap')||idx,phase:struct?gv(r,'Tipo di fase'):'',dist:dist.toFixed(2),
     passo:gv(r,'Passo medio min/km','Passo medio')||'-',fc:gv(r,'FC Media bpm','FC Media')||'',
     fcMax:gv(r,'FC max bpm','FC max')||'',cadence:gv(r,'Cadenza di corsa media pam','Cadenza di corsa media')||'',
-    gct:gv(r,'Tempo medio di contatto con il suolo ms','Tempo medio di contatto con il suolo')||'',
-    stride:gv(r,'Lunghezza media passo m','Lunghezza media passo')||'',
-    osc:gv(r,'Oscillazione verticale media cm','Oscillazione verticale media')||'',
-    power:gv(r,'Potenza media W','Potenza media')||'',tempo:gv(r,'Tempo')||'',
-    asc:gv(r,'Ascesa totale m','Ascesa totale','Ascesa')||'',
-    desc:gv(r,'Discesa totale m','Discesa totale','Discesa')||''};
+    gct:normNum(gv(r,'Tempo medio di contatto con il suolo ms','Tempo medio di contatto con il suolo'))||'',
+    stride:normNum(gv(r,'Lunghezza media passo m','Lunghezza media passo'))||'',
+    osc:normNum(gv(r,'Oscillazione verticale media cm','Oscillazione verticale media'))||'',
+    power:normNum(gv(r,'Potenza media W','Potenza media'))||'',tempo:gv(r,'Tempo')||'',
+    asc:normNum(gv(r,'Ascesa totale m','Ascesa totale','Ascesa'))||'',
+    desc:normNum(gv(r,'Discesa totale m','Discesa totale','Discesa'))||''};
 }
 function saveCsv(){
   var shoe=gi('csh'),name=gi('cnm').trim();
