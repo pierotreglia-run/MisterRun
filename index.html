@@ -376,8 +376,9 @@ textarea{resize:vertical;min-height:56px}
     <button onclick="askQ('Sto andando verso il sovrallenamento? Analizza RPE e volume')">Sovrallenamento</button>
     <button onclick="askQ('Confronta le mie sedute con ripetute 1000m: cosa e cambiato nella biomeccanica?')">5x1000</button>
   </div>
-  <div class="chatbox" id="chatmsgs"><div class="empty" style="padding:20px"><p style="font-size:13px;margin-bottom:8px">Le analisi si aprono nella chat con il coach.</p><p style="font-size:11px;color:var(--tx3);margin-bottom:12px">Premi un suggerimento qui sotto oppure usa il pulsante Analizza nello storico.</p></div></div>
+  <div class="chatbox" id="chatmsgs"><div class="empty" style="padding:20px"><p style="font-size:13px;margin-bottom:8px">Caricamento coach...</p><p style="font-size:11px;color:var(--tx3);margin-bottom:12px">Premi un suggerimento qui sotto oppure usa il pulsante Analizza nello storico.</p></div></div>
   <div class="crow"><input id="chatin" placeholder="Chiedi al coach..." onkeydown="if(event.key==='Enter')sendChat()"><button class="btn" onclick="sendChat()"><i class="ti ti-send"></i></button></div>
+  <div id="chaterr"></div>
 </div></div>
 <div id="tab-profile" class="sec"><div class="card">
   <p class="st">Modifica profilo</p>
@@ -390,6 +391,14 @@ textarea{resize:vertical;min-height:56px}
   <div class="fg"><label>Note</label><textarea id="pnt"></textarea></div>
   <button class="btn bp bw" onclick="updProf()">Aggiorna</button>
   <div id="profmsg"></div>
+</div>
+<div class="card">
+  <p class="st">Coach AI (Gemini)</p>
+  <p style="font-size:11px;color:var(--tx2);margin-bottom:10px">Con una chiave API di Google AI Studio il coach risponde direttamente nell'app. La chiave resta solo su questo dispositivo e non finisce nell'export JSON. Per generare le risposte, profilo e allenamenti vengono inviati a Google.</p>
+  <div class="fg"><label>Chiave API</label><input type="password" id="gkey" placeholder="AIza..." autocomplete="off"></div>
+  <div class="fg"><label>Modello</label><input id="gmodel" list="gmodels" placeholder="gemini-3.5-flash" autocomplete="off"><datalist id="gmodels"></datalist></div>
+  <div style="display:flex;gap:6px"><button class="btn bp" style="flex:1" onclick="saveGem()">Salva</button><button class="btn" onclick="testGem()">Verifica</button><button class="btn" onclick="rmGem()">Rimuovi</button></div>
+  <div id="gemmsg"></div>
 </div>
 <div class="card">
   <p class="st">Zone FC (Karvonen)</p>
@@ -449,7 +458,7 @@ function boot(){
     try{fn();}catch(e){console.error('[boot] '+name+' failed:',e);}
   }
   safeCall(fillSH,'fillSH');
-  safeCall(fillProf,'fillProf');
+  safeCall(fillProf,'fillProf');safeCall(fillGem,'fillGem');safeCall(renderChat,'renderChat');
   safeCall(renderStats,'renderStats');
   safeCall(renderPlan,'renderPlan');
   safeCall(renderShoes,'renderShoes');
@@ -967,7 +976,7 @@ function analyzeW(){
     'LAP:\n'+lapStr+'\n\n'+
     'Note: '+(w.notes||'—')+'\n\n'+
     'Fammi unanalisi clinica lap per lap: deriva passo/cadenza/GCT/falcata, confronto con baseline, cosa tengo e cosa correggo. Se c\'e dislivello significativo, valuta anche l\'impatto del percorso sul ritmo e sullo sforzo percepito.';
-  copyAndOpen(txt);
+  copyAndOpen(txt,{wid:w.id});
 }
 
 function genCard(){
@@ -1667,19 +1676,199 @@ function renderTgts(){
   var el=document.getElementById('tgtlist');if(!el)return;
   el.innerHTML=TG.length?TG.slice(0,5).map(function(t){return '<div class="tgt"><div style="font-size:12px;font-weight:500">'+t.goal+'</div><div style="font-size:10px;color:var(--tx2);margin-top:2px">'+(t.date?'Entro '+t.date+' - ':'')+t.at.slice(0,10)+'</div></div>';}).join(''):'<p class="empty">Nessun target</p>';
 }
-function askQ(q){
-  copyAndOpen(q);
+
+// ── COACH AI (GEMINI) ────────────────────────────────────────────────────────
+var GEM_DEFAULT_MODEL='gemini-3.5-flash';
+var GEM_BASE='https://generativelanguage.googleapis.com/v1beta/';
+function gemCfg(){return {key:String(LS.get('tl_gem_key')||'').trim(),model:String(LS.get('tl_gem_model')||GEM_DEFAULT_MODEL).trim()};}
+function gemOn(){return !!gemCfg().key;}
+function fillGem(){
+  var c=gemCfg();
+  var k=document.getElementById('gkey'),m=document.getElementById('gmodel');
+  if(k)k.value=c.key;if(m)m.value=c.model;
 }
+function saveGem(){
+  var k=gi('gkey').trim(),m=gi('gmodel').trim()||GEM_DEFAULT_MODEL;
+  if(!k){smsg('gemmsg','err','Inserisci la chiave API.');return;}
+  LS.set('tl_gem_key',k);LS.set('tl_gem_model',m);
+  smsg('gemmsg','ok','Salvato. Il coach ora usa Gemini ('+esc(m)+').');renderChat();
+}
+function rmGem(){
+  try{localStorage.removeItem('tl_gem_key');localStorage.removeItem('tl_gem_model');}catch(e){}
+  fillGem();renderChat();smsg('gemmsg','ok','Chiave rimossa. Il coach torna al copia/incolla su Claude.');
+}
+async function testGem(){
+  var k=gi('gkey').trim()||gemCfg().key,m=gi('gmodel').trim()||gemCfg().model;
+  if(!k){smsg('gemmsg','err','Inserisci prima la chiave API.');return;}
+  var e=document.getElementById('gemmsg');if(e)e.innerHTML='<div class="ok">Verifica in corso...</div>';
+  try{
+    var r=await fetch(GEM_BASE+'models?pageSize=200',{headers:{'x-goog-api-key':k}});
+    var d=await r.json().catch(function(){return null;});
+    if(!r.ok)throw new Error((d&&d.error&&d.error.message)||('HTTP '+r.status));
+    var ids=(d.models||[]).filter(function(x){return /^models\/gemini/.test(x.name)&&(x.supportedGenerationMethods||[]).indexOf('generateContent')>=0&&!/image|tts|embedding|live|audio/i.test(x.name);}).map(function(x){return x.name.replace('models/','');});
+    var dl=document.getElementById('gmodels');if(dl)dl.innerHTML=ids.map(function(i){return '<option value="'+esc(i)+'">';}).join('');
+    var ok=ids.indexOf(m)>=0;
+    if(e)e.innerHTML='<div class="'+(ok?'ok':'err')+'">Chiave valida, '+ids.length+' modelli disponibili. '+(ok?'Modello "'+esc(m)+'" attivo.':'Il modello "'+esc(m)+'" non risulta disponibile: scegline uno dall\'elenco nel campo Modello.')+'</div>';
+  }catch(er){
+    if(e)e.innerHTML='<div class="err">'+esc(/Failed to fetch/i.test(er.message)?'Connessione assente o bloccata.':er.message)+'</div>';
+  }
+}
+function coachData(){
+  var NL='\n',t='';
+  var ws=W.slice().sort(function(a,b){return String(b.date).localeCompare(String(a.date));}).slice(0,25);
+  t+='ULTIMI ALLENAMENTI (dal più recente):'+NL;
+  if(!ws.length)t+='(nessun allenamento in archivio)'+NL;
+  ws.forEach(function(w){
+    t+=w.date+' | '+(w.name||w.type)+' ['+w.type+'] | '+w.dist+' km | '+pcStr(w.dist,w.timeSecs)+' | RPE '+(w.rpe||'?')+(w.hr?' | FC '+w.hr+' bpm':'')+(w.notes?' | '+w.notes:'')+NL;
+  });
+  var q=ws.filter(function(w){return w.laps&&w.laps.length&&['Qualità','Gara'].indexOf(w.type)>=0;}).slice(0,3);
+  if(q.length){
+    t+=NL+'LAP DELLE ULTIME SEDUTE DI QUALITÀ:'+NL;
+    q.forEach(function(w){
+      t+=w.date+' '+(w.name||w.type)+': '+w.laps.filter(function(l){return l.phase==='Corsa'||l.phase==='Ripetuta';}).map(function(l){return 'L'+l.lap+' '+l.dist+'km@'+l.passo+' FC'+(l.fc||'?')+' Cad'+(l.cadence||'?')+' GCT'+(l.gct||'?');}).join(' | ')+NL;
+    });
+  }
+  var plan=(window._customPlan&&window._customPlan.length)?window._customPlan:PLAN;
+  var nxt=plan.filter(function(p){return !planDone[(p.fase||'')+'|'+(p.sett||'')+'|'+(p.giorno||'')+'|'+(p.n||'')];}).slice(0,4);
+  if(nxt.length){
+    t+=NL+'PROSSIME SEDUTE DEL PIANO:'+NL;
+    nxt.forEach(function(p){t+=(p.sett||'')+' '+(p.giorno||'')+': '+(p.tipo||'')+' - '+(p.desc||'')+(p.passo?' | passo '+p.passo:'')+(p.fc?' | FC '+p.fc:'')+NL;});
+  }
+  return t;
+}
+function coachSys(withData){
+  var s='Sei il coach di corsa personale di '+((P&&P.name)||'un runner amatoriale')+'. Rispondi sempre in italiano, in modo diretto e concreto, basandoti sui numeri forniti (lap, passo, FC, cadenza, GCT, RPE) e non su consigli generici. Se un dato manca, dillo invece di inventarlo. Usa il formato numerico italiano (virgola decimale, punto per le migliaia) e il passo nel formato m:ss/km. Non sei un medico: per dolori o sintomi consiglia di sentire un professionista.';
+  if(P){
+    s+='\n\nPROFILO: ';
+    s+=[P.age?'età '+P.age:'',P.fcMax?'FC max '+P.fcMax+' bpm':'',P.fcRest?'FC riposo '+P.fcRest+' bpm':'',P.pb5?'PB 5 km '+P.pb5:'',P.pb10?'PB 10 km '+P.pb10:'',P.goal5?'obiettivo 5 km '+P.goal5:'',P.goal10?'obiettivo 10 km '+P.goal10:'',P.freq?P.freq+' uscite/sett':'',P.sleep?P.sleep+' h sonno':'',P.notes?'note: '+P.notes:''].filter(Boolean).join(' | ');
+  }
+  if(withData)s+='\n\n'+coachData();
+  return s;
+}
+async function gemCall(contents,sys){
+  var c=gemCfg();
+  if(!c.key)throw new Error('Chiave API Gemini non impostata (Profilo → Coach AI).');
+  var ctl=new AbortController();var tm=setTimeout(function(){ctl.abort();},90000);
+  try{
+    var r=await fetch(GEM_BASE+'models/'+encodeURIComponent(c.model)+':generateContent',{
+      method:'POST',signal:ctl.signal,
+      headers:{'Content-Type':'application/json','x-goog-api-key':c.key},
+      body:JSON.stringify({systemInstruction:{parts:[{text:sys}]},contents:contents,generationConfig:{temperature:0.4,maxOutputTokens:8192}})
+    });
+    var d=await r.json().catch(function(){return null;});
+    if(!r.ok){
+      var m=(d&&d.error&&d.error.message)||('HTTP '+r.status);
+      if(r.status===400&&/API key/i.test(m))m='Chiave API non valida.';
+      else if(r.status===403)m='Accesso negato: controlla che la chiave sia abilitata per Gemini API.';
+      else if(r.status===404)m='Modello "'+c.model+'" non disponibile: in Profilo usa "Verifica" per vedere quelli attivi.';
+      else if(r.status===429)m='Quota Gemini esaurita o troppe richieste: riprova tra poco.';
+      throw new Error(m);
+    }
+    var cand=d&&d.candidates&&d.candidates[0];
+    var txt=(cand&&cand.content&&cand.content.parts)?cand.content.parts.map(function(x){return x.text||'';}).join(''):'';
+    if(!txt)throw new Error(d&&d.promptFeedback&&d.promptFeedback.blockReason?'Richiesta bloccata da Gemini ('+d.promptFeedback.blockReason+').':'Risposta vuota da Gemini'+(cand&&cand.finishReason?' ('+cand.finishReason+')':'')+'.');
+    if(cand.finishReason==='MAX_TOKENS')txt+='\n\n[risposta troncata]';
+    return txt;
+  }catch(e){
+    if(e.name==='AbortError')throw new Error('Timeout: Gemini non ha risposto entro 90 secondi.');
+    if(/Failed to fetch|NetworkError/i.test(e.message))throw new Error('Connessione assente o bloccata.');
+    throw e;
+  }finally{clearTimeout(tm);}
+}
+function mdLite(t){
+  return esc(t).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/^#{1,4}\s*(.+)$/gm,'<b>$1</b>').replace(/^\s*[\*\-]\s+/gm,'• ');
+}
+function renderChat(){
+  var el=document.getElementById('chatmsgs');if(!el)return;
+  if(!chatH.length){
+    el.innerHTML='<div class="empty" style="padding:20px"><p style="font-size:13px;margin-bottom:8px">'+(gemOn()?'Chiedi al coach: conosce profilo, ultimi allenamenti e prossime sedute del piano.':'Il coach in-app usa Gemini: imposta la chiave in Profilo → Coach AI. Senza chiave le domande si copiano e si aprono nella chat Claude.')+'</p></div>';
+    return;
+  }
+  el.innerHTML=chatH.map(function(m){
+    var u=m.role==='user';
+    return '<div class="msg'+(u?' user':'')+'"><div class="mr">'+(u?'Tu':'Coach')+'</div><div class="mt">'+(u?esc(m.label||m.text):mdLite(m.text))+'</div></div>';
+  }).join('');
+  el.scrollTop=el.scrollHeight;
+}
+function askQ(q){
+  if(!gemOn()){copyAndOpenLegacy(q);return;}
+  var inp=document.getElementById('chatin');if(inp)inp.value=q;
+  sendChat();
+}
+var _chatBusy=false;
 async function sendChat(){
   var inp=document.getElementById('chatin');
-  var q=(inp&&inp.value||'').trim();if(!q)return;inp.value='';
-  copyAndOpen(q);
+  var q=(inp&&inp.value||'').trim();if(!q)return;
+  if(!gemOn()){inp.value='';copyAndOpenLegacy(q);return;}
+  if(_chatBusy)return;
+  _chatBusy=true;inp.value='';
+  var er=document.getElementById('chaterr');if(er)er.innerHTML='';
+  chatH.push({role:'user',text:q});chatH.push({role:'model',text:'...'});renderChat();
+  try{
+    var hist=chatH.slice(0,-1).slice(-20).map(function(m){return {role:m.role,parts:[{text:m.text}]};});
+    var a=await gemCall(hist,coachSys(true));
+    chatH[chatH.length-1].text=a;
+  }catch(e){
+    chatH.pop();chatH.pop();inp.value=q;
+    if(er)er.innerHTML='<div class="err">'+esc(e.message)+'</div>';
+  }
+  _chatBusy=false;renderChat();
 }
-
+function copyAndOpen(txt,opts){
+  if(!gemOn()){copyAndOpenLegacy(txt);return;}
+  coachModal(txt,opts||{});
+}
+async function coachModal(txt,opts){
+  var ex=document.getElementById('coach-ai-modal');if(ex)ex.remove();
+  var modal=document.createElement('div');modal.id='coach-ai-modal';
+  modal.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  var box=document.createElement('div');
+  box.style.cssText='background:var(--bg);border-radius:var(--r2);padding:16px;max-width:520px;width:100%;max-height:88vh;display:flex;flex-direction:column';
+  modal.appendChild(box);document.body.appendChild(modal);
+  modal.addEventListener('click',function(e){if(e.target===modal)modal.remove();});
+  function head(t){return '<p style="font-size:14px;font-weight:500;margin-bottom:8px">'+t+'</p>';}
+  async function run(){
+    box.innerHTML=head('Coach')+'<div class="mt" style="margin-bottom:12px">Il coach sta analizzando...</div><button class="btn bw" id="cai-close">Chiudi</button>';
+    box.querySelector('#cai-close').onclick=function(){modal.remove();};
+    var ans;
+    try{ans=await gemCall([{role:'user',parts:[{text:txt}]}],coachSys(false));}
+    catch(e){
+      box.innerHTML=head('Impossibile contattare Gemini')+'<div class="err" style="margin-bottom:12px">'+esc(e.message)+'</div>'+
+        '<div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn bp" style="flex:1" id="cai-retry">Riprova</button><button class="btn" style="flex:1" id="cai-legacy">Copia per Claude</button></div><button class="btn bw" id="cai-close">Chiudi</button>';
+      box.querySelector('#cai-retry').onclick=run;
+      box.querySelector('#cai-legacy').onclick=function(){modal.remove();copyAndOpenLegacy(txt);};
+      box.querySelector('#cai-close').onclick=function(){modal.remove();};
+      return;
+    }
+    box.innerHTML=head('Risposta del coach')+'<div class="mt" style="overflow-y:auto;margin-bottom:12px;flex:1">'+mdLite(ans)+'</div>'+
+      '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">'+
+      (opts.wid?'<button class="btn bp" style="flex:1" id="cai-save">Salva nota</button>':'')+
+      '<button class="btn" style="flex:1" id="cai-chat">Continua in chat</button><button class="btn" style="flex:1" id="cai-copy">Copia</button></div><button class="btn bw" id="cai-close">Chiudi</button>';
+    box.querySelector('#cai-close').onclick=function(){modal.remove();};
+    box.querySelector('#cai-copy').onclick=function(){
+      if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(ans).then(function(){box.querySelector('#cai-copy').textContent='Copiato';});
+    };
+    box.querySelector('#cai-chat').onclick=function(){
+      chatH=[{role:'user',text:txt,label:'📎 '+String(txt).split('\n')[0].slice(0,80)},{role:'model',text:ans}];
+      modal.remove();renderChat();
+      var nb=document.querySelector('[onclick^="goTab(\'chat\'"]');goTab('chat',nb);
+    };
+    var sv=box.querySelector('#cai-save');
+    if(sv)sv.onclick=function(){
+      var w=W.find(function(x){return x.id===opts.wid;});if(!w)return;
+      if(!w.coachNotes)w.coachNotes=[];
+      w.coachNotes.unshift({date:new Date().toLocaleDateString('it-IT')+' '+new Date().toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}),text:ans});
+      LS.set('tw',W);modal.remove();
+      if(document.getElementById('dpanel').style.display!=='none')openD(opts.wid);
+      openCoachNotes(opts.wid);
+    };
+  }
+  run();
+}
 
 const PROJECT_URL = "https://claude.ai/project/019ea634-1b85-774f-bc76-e62728552cc7";
 
-function copyAndOpen(txt){
+function copyAndOpenLegacy(txt){
   // Try clipboard API
   var copied=false;
   if(navigator.clipboard&&navigator.clipboard.writeText){
