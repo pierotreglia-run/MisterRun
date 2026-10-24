@@ -14,33 +14,37 @@
   --bd:#2a2a2a;--bd2:#333333;
   --r:14px;--r2:20px;
   --blu:#5B9BD5;--blubg:rgba(24,95,165,.18);--bludk:#8FBCE6;
-  --acc:#FF6B35;--acc-bg:rgba(255,107,53,.12);--acc-glow:rgba(255,107,53,.25);
+  --acc:#FF6B35;--acc-bg:rgba(255,107,53,.12);--acc-glow:rgba(255,107,53,.25);--on-acc:#000;--bar:#185FA5;
   --grn:#00D4AA;--grn-bg:rgba(0,212,170,.12);
   --red:#FF3B5C;--red-bg:rgba(255,59,92,.12);
   --amb:#FFB020;--amb-bg:rgba(255,176,32,.12);
   --spark-line:#6aabf7;--spark-fill:rgba(106,171,247,.18);
 }
-/* Tema chiaro — palette ispirata a Cozzu's Coach: bianco/grigio chiarissimo,
-   blu-navy per testo/azioni, arancione per accenti e tag */
+/* Tema chiaro — "Blu notte + Cobalto": fondo grigio-azzurro freddo, inchiostro blu notte
+   per testi e navigazione, cobalto come unico accento; verde/ambra/rosso solo semantici */
 body.light{
-  --bg:#f4f6f8;--bg2:#ffffff;--bg3:#eef1f4;
-  --tx:#13293d;--tx2:#5b6b7a;--tx3:#8d99a5;
-  --bd:#e7ebef;--bd2:#dbe1e7;
-  --blu:#1a3a52;--blubg:rgba(26,58,82,.08);--bludk:#0f2838;
-  --acc:#E8622C;--acc-bg:rgba(232,98,44,.12);--acc-glow:rgba(232,98,44,.2);
-  --grn:#1D9E75;--grn-bg:rgba(29,158,117,.12);
-  --red:#D1483F;--red-bg:rgba(209,72,63,.11);
-  --amb:#B8860B;--amb-bg:rgba(184,134,11,.12);
-  --spark-line:#1a3a52;--spark-fill:rgba(26,58,82,.12);
+  --bg:#F3F5F9;--bg2:#FFFFFF;--bg3:#EEF1F6;
+  --tx:#0F1D33;--tx2:#556379;--tx3:#7D899D;
+  --bd:#E5E9F0;--bd2:#D6DCE6;
+  --blu:#172A52;--blubg:rgba(23,42,82,.07);--bludk:#0E1B3A;
+  --acc:#2563EB;--acc-bg:rgba(37,99,235,.10);--acc-glow:rgba(37,99,235,.22);--on-acc:#FFFFFF;
+  --grn:#12936A;--grn-bg:rgba(18,147,106,.11);
+  --red:#D83F4F;--red-bg:rgba(216,63,79,.10);
+  --amb:#A16207;--amb-bg:rgba(161,98,7,.12);
+  --spark-line:#2563EB;--spark-fill:rgba(37,99,235,.12);
+  --bar:#8C9BBA;
 }
-body.light .card,body.light .met,body.light .nav{box-shadow:0 1px 2px rgba(19,41,61,.03),0 4px 14px rgba(19,41,61,.05);border:none}
+body.light .card,body.light .met,body.light .nav{box-shadow:0 1px 2px rgba(15,29,51,.04),0 6px 18px rgba(15,29,51,.06);border:none}
 body.light .pill{border:none;font-weight:700}
 body.light input,body.light select,body.light textarea{background:var(--bg3);border:1px solid var(--bd2)}
-body.light .nb.on{box-shadow:0 1px 3px rgba(26,58,82,.18)}
+body.light .nb{color:var(--tx2)}
+body.light .nb.on{background:var(--blu);color:#fff;border-color:transparent;box-shadow:0 2px 8px rgba(23,42,82,.28)}
+body.light .avatar-circle{background:linear-gradient(135deg,var(--blu) 0%,var(--acc) 100%);color:#fff;box-shadow:0 2px 8px rgba(37,99,235,.25)}
 body.light .btn{border-color:var(--bd2)}
+body.light .bp{background:var(--acc);border-color:var(--acc);color:#fff}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--tx);min-height:100vh}
 .app{max-width:700px;margin:0 auto;padding:14px}
-.avatar-circle{width:30px;height:30px;border-radius:10px;background:var(--acc);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#000;flex-shrink:0}
+.avatar-circle{width:30px;height:30px;border-radius:10px;background:var(--acc);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:var(--on-acc);flex-shrink:0}
 .nav{display:flex;gap:3px;margin-bottom:14px;background:var(--bg2);padding:3px;border-radius:var(--r2);overflow-x:auto;scrollbar-width:none}
 .nav::-webkit-scrollbar{display:none}
 .nb{flex:0 0 auto;padding:7px 12px;border:none;background:transparent;color:var(--tx3);font-size:11px;font-weight:600;cursor:pointer;border-radius:12px;white-space:nowrap;letter-spacing:.02em}
@@ -1085,6 +1089,7 @@ function genCard(){
     (sh?'<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:#555"><span style="width:6px;height:6px;border-radius:3px;background:rgba(255,107,53,.5);display:inline-block"></span>'+sh.name+'</div>':'<div></div>')+
     '<div style="font-size:9px;font-weight:800;color:rgba(255,107,53,.4);letter-spacing:.08em">TRAINING LOG</div>'+
     '</div></div></div>';
+  cardHtml=lightCard(cardHtml);
 
   // Show in full-screen modal overlay
   var existing=document.getElementById('scheda-modal');if(existing)existing.remove();
@@ -1095,7 +1100,7 @@ function genCard(){
     '<div style="max-width:500px;margin:0 auto">'+
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'+
     '<button id="scheda-close" style="background:var(--bg2);border:1px solid var(--bd);color:var(--tx);padding:8px 14px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer">← Chiudi</button>'+
-    '<button id="scheda-dl" style="background:var(--acc);border:none;color:#000;padding:8px 14px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer">↓ Scarica PNG</button>'+
+    '<button id="scheda-dl" style="background:var(--acc);border:none;color:var(--on-acc);padding:8px 14px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer">↓ Scarica PNG</button>'+
     '</div>'+
     '<div id="scheda-content">'+cardHtml+'</div>'+
     '</div>';
@@ -1103,6 +1108,36 @@ function genCard(){
   document.getElementById('scheda-close').onclick=function(){modal.remove();};
   document.getElementById('scheda-dl').onclick=function(){dlCard();};
   modal.addEventListener('click',function(e){if(e.target===modal)modal.remove();});
+}
+
+
+// ── Schede PNG: versione chiara quando l'app è in tema chiaro ────────────────
+function isLightUI(){return document.body.classList.contains('light');}
+function cardBg(){return isLightUI()?'#FFFFFF':'#0f0f0f';}
+function _swap(str,map){for(var i=0;i<map.length;i++){str=str.split(map[i][0]).join(map[i][1]);}return str;}
+function lightCard(html){
+  if(!isLightUI())return html;
+  var i=html.indexOf('padding:16px 16px 20px');
+  var head=i>0?html.slice(0,i):'',body=i>0?html.slice(i):html;
+  // intestazione: blu notte con testi chiari
+  head=_swap(head,[
+    ['#0f0f0f','#FFFFFF'],['rgba(255,107,53,.15)','rgba(23,42,82,.12)'],
+    ['#1a0a05','#14264A'],['#2a1008','#22407A'],
+    ['rgba(255,107,53,.18)','rgba(120,170,255,.22)'],['rgba(255,107,53,.7)','rgba(150,190,255,.95)'],
+    ['rgba(255,107,53,.5)','rgba(150,190,255,.65)'],['#FF6B35','#9CC2FF'],
+    ['rgba(255,255,255,.35)','rgba(255,255,255,.65)'],['rgba(255,255,255,.3)','rgba(255,255,255,.5)']
+  ]);
+  // corpo: fondo bianco, testi blu notte, accento cobalto
+  body=_swap(body,[
+    ['border-top:1px solid #1a1a1a','border-top:1px solid #E5E9F0'],
+    ['#0f0f0f','#FFFFFF'],['#1a1a1a','#F3F5F9'],['#222','#E5E9F0'],['#1c1c1c','#E9EDF3'],
+    ['rgba(255,255,255,.04)','rgba(23,42,82,.05)'],['rgba(255,255,255,.35)','rgba(15,29,51,.55)'],
+    ['#fff','#0F1D33'],['#ccc','#1E2E48'],['#888','#556379'],['#666','#7D899D'],['#555','#7D899D'],['#444','#7D899D'],
+    ['rgba(255,107,53,.15)','rgba(23,42,82,.12)'],['rgba(255,107,53,.7)','rgba(37,99,235,.85)'],
+    ['rgba(255,107,53,.5)','rgba(37,99,235,.5)'],['rgba(255,107,53,.4)','rgba(37,99,235,.55)'],
+    ['#FF6B35','#2563EB'],['#4B9EFF','#0E9F8E'],['#00D4AA','#12936A'],['#FF3B5C','#D83F4F']
+  ]);
+  return head+body;
 }
 
 async function dlCard(){
@@ -1114,7 +1149,7 @@ async function dlCard(){
   if(dlBtn){dlBtn.textContent='Generazione...';dlBtn.disabled=true;}
   try{
     var canvas=await html2canvas(el,{
-      backgroundColor:'#0f0f0f',
+      backgroundColor:cardBg(),
       scale:2,
       logging:false,
       useCORS:true,
@@ -1269,7 +1304,7 @@ function renderStats(){
     var isNow=wk.label==='Ora';
     return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px">'+
       '<span style="font-size:10px;color:'+(isNow?'var(--blu)':'var(--tx3)')+'">'+Math.round(wk.km)+'km</span>'+
-      '<div style="width:100%;height:'+Math.max(3,Math.round((wk.km/mx)*60))+'px;background:'+(isNow?'var(--blu)':'#185FA5')+';border-radius:3px 3px 0 0;opacity:'+(isNow?'1':'.65')+'"></div>'+
+      '<div style="width:100%;height:'+Math.max(3,Math.round((wk.km/mx)*60))+'px;background:'+(isNow?'var(--blu)':'var(--bar)')+';border-radius:3px 3px 0 0;opacity:'+(isNow?'1':'.65')+'"></div>'+
       '</div>';
   }).join('');
   document.getElementById('wlabels').innerHTML=weeks.map(function(wk){
@@ -2356,7 +2391,7 @@ function showWeeklySummaryModal(week,sessions,km,qual,avgRpe,topShoe,kmDiff,prev
     (topShoe?'<p style="font-size:12px;color:var(--tx2);margin-bottom:6px">Scarpa piu usata: <strong>'+topShoe.name+'</strong></p>':'')+
     '<p style="font-size:12px;color:var(--tx2);margin-bottom:14px">'+diffStr+'</p>'+
     '<div style="display:flex;gap:8px">'+
-    '<button class="btn" style="flex:1;background:var(--acc);color:#000;border:none;font-weight:700" id="weekly-share-btn">Condividi 📤</button>'+
+    '<button class="btn" style="flex:1;background:var(--acc);color:var(--on-acc);border:none;font-weight:700" id="weekly-share-btn">Condividi 📤</button>'+
     '<button class="btn bp" style="flex:1" id="weekly-copy-btn">Copia</button>'+
     '<button class="btn" id="weekly-close-btn">✕</button>'+
     '</div></div>';
@@ -3731,14 +3766,15 @@ function shareWeeklyCard(week,sessions,km,qual,avgRpe,topShoe,kmDiff,prevKm){
     '<div style="display:flex;align-items:center;justify-content:space-between;padding-top:12px;border-top:1px solid #1a1a1a">'+
     '<div style="font-size:9px;font-weight:800;color:rgba(255,107,53,.4);letter-spacing:.08em">TRAINING LOG</div>'+
     '</div></div>';
+  cardHtml=lightCard(cardHtml);
 
   // Render to a temp div, use html2canvas
   var tmp=document.createElement('div');
-  tmp.style.cssText='position:fixed;top:-9999px;left:-9999px;background:#0f0f0f';
+  tmp.style.cssText='position:fixed;top:-9999px;left:-9999px;background:'+cardBg();
   tmp.innerHTML=cardHtml;
   document.body.appendChild(tmp);
 
-  html2canvas(tmp,{backgroundColor:'#0f0f0f',scale:2,logging:false}).then(function(canvas){
+  html2canvas(tmp,{backgroundColor:cardBg(),scale:2,logging:false}).then(function(canvas){
     tmp.remove();
     canvas.toBlob(function(blob){
       var file=new File([blob],'settimana_'+week.replace(/[^a-zA-Z0-9]/g,'_')+'.png',{type:'image/png'});
