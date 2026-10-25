@@ -157,7 +157,7 @@ textarea{resize:vertical;min-height:56px}
   <div id="dash-content"></div>
 </div>
 <div id="tab-log" class="sec"><div class="card">
-  <div class="t2"><button class="on" onclick="switchLog('m',this)">Manuale</button><button onclick="switchLog('c',this)">Import CSV Garmin</button></div>
+  <div class="t2"><button class="on" onclick="switchLog('m',this)">Manuale</button><button onclick="switchLog('c',this)">Import CSV Garmin</button><button onclick="switchLog('i',this)">Import Intervals</button></div>
   <div id="lm">
     <div id="meteo-bar" class="metbar" style="display:none"></div>
     <p class="st">Nuovo allenamento</p>
@@ -205,6 +205,12 @@ textarea{resize:vertical;min-height:56px}
       <div id="csv-err"></div>
       <button class="btn bp bw" onclick="saveCsv()" style="margin-top:8px"><i class="ti ti-check"></i> Salva con lap Garmin</button>
     </div>
+  </div>
+  <div id="li" style="display:none">
+    <p class="st">Import da Intervals.icu</p>
+    <div id="icu-warn"></div>
+    <div class="g2"><div class="fg"><label>Periodo</label><select id="icu-days"><option value="7">Ultimi 7 giorni</option><option value="14" selected>Ultimi 14 giorni</option><option value="30">Ultimi 30 giorni</option><option value="60">Ultimi 60 giorni</option></select></div><div class="fg"><label>&nbsp;</label><button class="btn bp bw" onclick="icuFetch()">Cerca corse</button></div></div>
+    <div id="icu-list"></div>
   </div>
 </div></div>
 <div id="tab-history" class="sec">
@@ -405,6 +411,14 @@ textarea{resize:vertical;min-height:56px}
   <div id="gemmsg"></div>
 </div>
 <div class="card">
+  <p class="st">Intervals.icu (import allenamenti)</p>
+  <p style="font-size:11px;color:var(--tx2);margin-bottom:10px">Legge da Intervals.icu le corse sincronizzate da Garmin, con i lap. L'app fa solo letture: non scrive né cancella nulla sul tuo account. La chiave resta su questo dispositivo e non finisce nell'export JSON. L'import da CSV resta disponibile.</p>
+  <div class="fg"><label>ID atleta (es. i123456; vuoto = account della chiave)</label><input id="iid" placeholder="i123456" autocomplete="off" autocapitalize="off"></div>
+  <div class="fg"><label>Chiave API</label><input type="password" id="ikey" autocomplete="off"></div>
+  <div style="display:flex;gap:6px"><button class="btn bp" style="flex:1" onclick="saveIcu()">Salva</button><button class="btn" onclick="testIcu()">Verifica</button><button class="btn" onclick="rmIcu()">Rimuovi</button></div>
+  <div id="icumsg"></div>
+</div>
+<div class="card">
   <p class="st">Zone FC (Karvonen)</p>
   <p style="font-size:11px;color:var(--tx2);margin-bottom:10px">Calcolate da FCmax e FC riposo. Modifica manualmente se il tuo coach usa soglie diverse.</p>
   <div id="fc-zones-display"></div>
@@ -462,7 +476,7 @@ function boot(){
     try{fn();}catch(e){console.error('[boot] '+name+' failed:',e);}
   }
   safeCall(fillSH,'fillSH');
-  safeCall(fillProf,'fillProf');safeCall(fillGem,'fillGem');safeCall(renderChat,'renderChat');
+  safeCall(fillProf,'fillProf');safeCall(fillGem,'fillGem');safeCall(fillIcu,'fillIcu');safeCall(renderChat,'renderChat');
   safeCall(renderStats,'renderStats');
   safeCall(renderPlan,'renderPlan');
   safeCall(renderShoes,'renderShoes');
@@ -691,6 +705,8 @@ function goTab(t,btn){
 function switchLog(t,btn){
   document.getElementById('lm').style.display=t==='m'?'block':'none';
   document.getElementById('lc').style.display=t==='c'?'block':'none';
+  var li=document.getElementById('li');if(li)li.style.display=t==='i'?'block':'none';
+  if(t==='i')icuOpen();
   document.querySelectorAll('.t2 button').forEach(function(b){b.classList.remove('on');});
   if(btn)btn.classList.add('on');
 }
@@ -1744,8 +1760,18 @@ async function testGem(){
     var dl=document.getElementById('gmodels');if(dl)dl.innerHTML=ids.map(function(i){return '<option value="'+esc(i)+'">';}).join('');
     var ok=ids.indexOf(m)>=0;
     if(e)e.innerHTML='<div class="'+(ok?'ok':'err')+'">Chiave valida, '+ids.length+' modelli disponibili. '+(ok?'Modello "'+esc(m)+'" attivo.':'Il modello "'+esc(m)+'" non risulta disponibile: scegline uno dall\'elenco nel campo Modello.')+'</div>';
+    if(ok){
+      LS.set('tl_gem_key',k);LS.set('tl_gem_model',m);
+      e.innerHTML+='<div class="ok">Provo una risposta di prova...</div>';
+      try{
+        var t=await gemCall([{role:'user',parts:[{text:'Rispondi solo con la parola: ok'}]}],'Sei un test di connessione.');
+        e.innerHTML=e.innerHTML.replace('<div class="ok">Provo una risposta di prova...</div>','')+'<div class="ok">Risposta di prova ricevuta: '+esc(String(t).slice(0,40))+'</div>';
+      }catch(x){
+        e.innerHTML=e.innerHTML.replace('<div class="ok">Provo una risposta di prova...</div>','')+'<div class="err">Risposta di prova fallita: '+esc(x.message)+'</div>';
+      }
+    }
   }catch(er){
-    if(e)e.innerHTML='<div class="err">'+esc(/Failed to fetch/i.test(er.message)?'Connessione assente o bloccata.':er.message)+'</div>';
+    if(e)e.innerHTML='<div class="err">'+esc(/Failed to fetch|Load failed/i.test(er.message)?'Connessione assente o bloccata (non raggiungo Google).':er.message)+'</div>';
   }
 }
 function coachData(){
@@ -1785,11 +1811,16 @@ async function gemCall(contents,sys){
   if(!c.key)throw new Error('Chiave API Gemini non impostata (Profilo → Coach AI).');
   var ctl=new AbortController();var tm=setTimeout(function(){ctl.abort();},90000);
   try{
-    var r=await fetch(GEM_BASE+'models/'+encodeURIComponent(c.model)+':generateContent',{
-      method:'POST',signal:ctl.signal,
-      headers:{'Content-Type':'application/json','x-goog-api-key':c.key},
-      body:JSON.stringify({systemInstruction:{parts:[{text:sys}]},contents:contents,generationConfig:{temperature:0.4,maxOutputTokens:8192}})
-    });
+    var gurl=GEM_BASE+'models/'+encodeURIComponent(c.model)+':generateContent';
+    var gbody=JSON.stringify({systemInstruction:{parts:[{text:sys}]},contents:contents,generationConfig:{temperature:0.4,maxOutputTokens:8192}});
+    var r;
+    try{
+      r=await fetch(gurl,{method:'POST',signal:ctl.signal,headers:{'Content-Type':'application/json','x-goog-api-key':c.key},body:gbody});
+    }catch(e1){
+      if(e1.name==='AbortError')throw e1;
+      // ripiego: chiave nell'URL, così la richiesta non ha intestazioni personalizzate
+      r=await fetch(gurl+'?key='+encodeURIComponent(c.key),{method:'POST',signal:ctl.signal,headers:{'Content-Type':'application/json'},body:gbody});
+    }
     var d=await r.json().catch(function(){return null;});
     if(!r.ok){
       var m=(d&&d.error&&d.error.message)||('HTTP '+r.status);
@@ -1806,7 +1837,7 @@ async function gemCall(contents,sys){
     return txt;
   }catch(e){
     if(e.name==='AbortError')throw new Error('Timeout: Gemini non ha risposto entro 90 secondi.');
-    if(/Failed to fetch|NetworkError/i.test(e.message))throw new Error('Connessione assente o bloccata.');
+    if(/Failed to fetch|NetworkError|Load failed/i.test(e.message))throw new Error('Richiesta a Gemini non riuscita: rete assente o bloccata (VPN, blocco contenuti, rete aziendale) oppure bloccata dal browser.');
     throw e;
   }finally{clearTimeout(tm);}
 }
@@ -1899,6 +1930,193 @@ async function coachModal(txt,opts){
     };
   }
   run();
+}
+
+
+// ── IMPORT DA INTERVALS.ICU (sola lettura) ───────────────────────────────────
+var ICU_BASE='https://intervals.icu/api/v1';
+var _icuActs=[];
+function icuCfg(){return {key:String(LS.get('tl_icu_key')||'').trim(),id:String(LS.get('tl_icu_id')||'').trim()};}
+function icuOn(){return !!icuCfg().key;}
+function fillIcu(){
+  var c=icuCfg();var k=document.getElementById('ikey'),i=document.getElementById('iid');
+  if(k)k.value=c.key;if(i)i.value=c.id;
+}
+function saveIcu(){
+  var k=gi('ikey').trim(),i=gi('iid').trim();
+  if(!k){smsg('icumsg','err','Inserisci la chiave API.');return;}
+  LS.set('tl_icu_key',k);LS.set('tl_icu_id',i);
+  smsg('icumsg','ok','Salvato. Ora puoi usare "Import Intervals" in Aggiungi.');
+}
+function rmIcu(){
+  try{localStorage.removeItem('tl_icu_key');localStorage.removeItem('tl_icu_id');}catch(e){}
+  fillIcu();_icuActs=[];smsg('icumsg','ok','Chiave rimossa.');
+}
+async function icuGet(path){
+  var c=icuCfg();
+  if(!c.key)throw new Error('Chiave Intervals.icu non impostata (Profilo → Intervals.icu).');
+  var r;
+  try{r=await fetch(ICU_BASE+path,{method:'GET',headers:{'Authorization':'Basic '+btoa('API_KEY:'+c.key)}});}
+  catch(e){throw new Error('Connessione assente o bloccata.');}
+  if(r.status===401||r.status===403)throw new Error('Chiave o ID atleta non accettati (HTTP '+r.status+').');
+  if(!r.ok)throw new Error('Intervals.icu ha risposto HTTP '+r.status+'.');
+  return r.json();
+}
+async function testIcu(){
+  var e=document.getElementById('icumsg');
+  var k=gi('ikey').trim(),i=gi('iid').trim();
+  if(!k){smsg('icumsg','err','Inserisci prima la chiave API.');return;}
+  LS.set('tl_icu_key',k);LS.set('tl_icu_id',i);
+  if(e)e.innerHTML='<div class="ok">Verifica in corso...</div>';
+  try{
+    var a=await icuGet('/athlete/'+encodeURIComponent(i||'0'));
+    if(e)e.innerHTML='<div class="ok">Connessione riuscita'+(a&&(a.name||a.firstname)?': '+esc(a.name||a.firstname):'')+(a&&a.id?' ('+esc(a.id)+')':'')+'.</div>';
+  }catch(er){if(e)e.innerHTML='<div class="err">'+esc(er.message)+'</div>';}
+}
+function icuYmd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function itn(n,k){return Number(n).toLocaleString('it-IT',{minimumFractionDigits:k,maximumFractionDigits:k});}
+function icuOpen(){
+  var w=document.getElementById('icu-warn');if(!w)return;
+  w.innerHTML=icuOn()?'':'<div class="err" style="margin-bottom:8px">Prima imposta ID atleta e chiave in Profilo → Intervals.icu.</div>';
+  var l=document.getElementById('icu-list');if(l&&!_icuActs.length)l.innerHTML='';
+}
+// unità: Intervals può restituire cadenza in passi singoli o per gamba, oscillazione in mm, passo in mm
+function icuCad(v){v=parseFloat(v)||0;return v>0&&v<120?v*2:v;}
+function icuOsc(v){v=parseFloat(v)||0;return v>30?v/10:v;}
+function icuStr(v){v=parseFloat(v)||0;return v>10?v/1000:v;}
+function icuPhase(t){
+  t=String(t||'').toUpperCase();
+  return t==='WARMUP'?'Riscaldamento':t==='COOLDOWN'?'Defaticamento':t==='RECOVERY'?'Recupero':t==='WORK'?'Corsa':'';
+}
+function icuLaps(iv){
+  var rows=(iv||[]).filter(function(x){return (parseFloat(x.distance)||0)>0;});
+  rows.sort(function(a,b){return (a.start_index||0)-(b.start_index||0);});
+  return rows.map(function(x,i){
+    var t=x.moving_time||x.elapsed_time||0,sp=x.average_speed||(t?x.distance/t:0);
+    var cad=x.average_cadence?Math.round(icuCad(x.average_cadence)):'';
+    var osc=x.average_vertical_oscillation?Math.round(icuOsc(x.average_vertical_oscillation)*10)/10:'';
+    var st=x.average_step_length?Math.round(icuStr(x.average_step_length)*100)/100:'';
+    return {lap:i+1,phase:icuPhase(x.type),dist:(x.distance/1000).toFixed(2),
+      passo:sp?fT(Math.round(1000/sp)):'-',
+      fc:x.average_heartrate?String(Math.round(x.average_heartrate)):'',
+      fcMax:x.max_heartrate?String(Math.round(x.max_heartrate)):'',
+      cadence:cad===''?'':String(cad),
+      gct:x.average_stance_time?String(Math.round(x.average_stance_time)):'',
+      stride:st===''?'':String(st),osc:osc===''?'':String(osc),power:'',tempo:fT(t),
+      asc:x.total_elevation_gain?String(Math.round(x.total_elevation_gain)):'',desc:''};
+  });
+}
+function icuAgg(laps){
+  function wavg(key,intg){
+    var ok=laps.filter(function(l){return parseFloat(l.dist)>0&&parseFloat(l[key])>0;});
+    if(!ok.length)return null;
+    var sd=ok.reduce(function(a,l){return a+parseFloat(l.dist);},0);
+    var sv=ok.reduce(function(a,l){return a+parseFloat(l[key])*parseFloat(l.dist);},0);
+    return intg?Math.round(sv/sd):sv/sd;
+  }
+  var dist=laps.reduce(function(a,l){return a+(parseFloat(l.dist)||0);},0);
+  var secs=laps.reduce(function(a,l){return a+tS(l.tempo);},0);
+  var hrMax=Math.max.apply(null,laps.map(function(l){return parseInt(l.fcMax)||0;}))||null;
+  var asc=laps.reduce(function(a,l){return a+(parseFloat(l.asc)||0);},0);
+  var st=wavg('stride'),os=wavg('osc');
+  return {dist:dist,secs:secs,hr:wavg('fc',true),hrMax:hrMax,cad:wavg('cadence',true),gct:wavg('gct',true),
+    stride:st===null?null:Math.round(st*100)/100,osc:os===null?null:Math.round(os*10)/10,asc:asc};
+}
+function icuDup(a){
+  if(W.some(function(w){return w.icuId===a.id;}))return 'gia';
+  var d=String(a.start_date_local||'').slice(0,10),km=(a.distance||0)/1000;
+  return W.some(function(w){return w.date===d&&Math.abs((parseFloat(w.dist)||0)-km)<0.3;})?'simile':'';
+}
+function icuGuessType(a,iv){
+  var nm=String(a.name||'').toLowerCase(),km=(a.distance||0)/1000;
+  var work=(iv||[]).filter(function(x){return String(x.type||'').toUpperCase()==='WORK';}).length;
+  if(/gara|race/.test(nm))return 'Gara';
+  if(work>=3||/ripet|\dx\d|\d\s?x\s?\d|qualit|fartlek|soglia|progressiv|tempo run|interval/.test(nm))return 'Qualità';
+  if(km>=16||/lungo/.test(nm))return 'Lungo';
+  if(/recup/.test(nm))return 'Recupero';
+  return 'Easy';
+}
+async function icuFetch(){
+  var box=document.getElementById('icu-list');
+  if(!icuOn()){icuOpen();return;}
+  var days=parseInt(gi('icu-days'))||14,now=new Date(),old=new Date(now.getTime()-days*864e5);
+  box.innerHTML='<div class="ok">Lettura delle attività...</div>';
+  try{
+    var id=encodeURIComponent(icuCfg().id||'0');
+    var all=await icuGet('/athlete/'+id+'/activities?oldest='+icuYmd(old)+'&newest='+icuYmd(now));
+    var runs=(Array.isArray(all)?all:[]).filter(function(a){return /run/i.test(a.type||'');});
+    runs.sort(function(a,b){return String(b.start_date_local).localeCompare(String(a.start_date_local));});
+    runs=runs.slice(0,30);
+    for(var i=0;i<runs.length;i++){
+      if(icuDup(runs[i])==='gia'){runs[i]._iv=[];continue;}
+      box.innerHTML='<div class="ok">Lettura dei lap '+(i+1)+'/'+runs.length+'...</div>';
+      try{var iv=await icuGet('/activity/'+encodeURIComponent(runs[i].id)+'/intervals');runs[i]._iv=(iv&&iv.icu_intervals)||[];}
+      catch(e){runs[i]._iv=[];runs[i]._ivErr=e.message;}
+    }
+    _icuActs=runs;renderIcu();
+  }catch(e){box.innerHTML='<div class="err">'+esc(e.message)+'</div>';}
+}
+function renderIcu(){
+  var box=document.getElementById('icu-list');if(!box)return;
+  if(!_icuActs.length){box.innerHTML='<div class="empty" style="padding:16px"><p style="font-size:13px">Nessuna corsa trovata nel periodo.</p></div>';return;}
+  var shoes=SH.filter(function(s){return !s.arch;});
+  var lastShoe=W.length?W[0].shoe:'';
+  var planOpts=(document.getElementById('cplan-link')||{}).innerHTML||'<option value="">- nessun collegamento -</option>';
+  var tipi=['Recupero','Easy','Lungo','Qualità','Gara'];
+  var html='';
+  _icuActs.forEach(function(a,n){
+    var dup=icuDup(a),date=String(a.start_date_local||'').slice(0,10),km=(a.distance||0)/1000;
+    var laps=icuLaps(a._iv),ag=laps.length?icuAgg(laps):null;
+    var hr=a.average_heartrate?Math.round(a.average_heartrate):(ag&&ag.hr?ag.hr:null);
+    var head='<div style="font-size:13px;font-weight:500">'+esc(date)+' · '+esc(a.name||'Corsa')+'</div>'+
+      '<div style="font-size:12px;color:var(--tx2);margin-top:2px">'+itn(km,2)+' km · '+pcStr(km,a.moving_time||0)+(hr?' · FC '+hr:'')+' · '+(laps.length?laps.length+' lap':'senza lap')+'</div>';
+    if(ag&&(ag.cad||ag.gct||ag.osc||ag.stride)){
+      head+='<div style="font-size:11px;color:var(--tx3);margin-top:2px">'+(ag.cad?'Cad '+ag.cad+' ':'')+(ag.gct?'· GCT '+ag.gct+' ms ':'')+(ag.osc?'· Osc '+itn(ag.osc,1)+' cm ':'')+(ag.stride?'· Passo '+itn(ag.stride,2)+' m':'')+'</div>';
+    }
+    if(ag&&km>0&&Math.abs(ag.dist-km)/km>0.03)head+='<div style="font-size:11px;color:var(--amb);margin-top:2px">I lap coprono '+itn(ag.dist,2)+' km su '+itn(km,2)+': potrebbero essere solo gli intervalli rilevati. Totali presi dall’attività.</div>';
+    if(a._ivErr)head+='<div style="font-size:11px;color:var(--amb)">Lap non letti: '+esc(a._ivErr)+'</div>';
+    if(dup==='gia'){
+      html+='<div class="card" style="opacity:.6">'+head+'<div style="font-size:12px;color:var(--grn);margin-top:6px">Già importata</div></div>';return;
+    }
+    var gear=a.gear&&a.gear.name?String(a.gear.name).toLowerCase():'';
+    var selShoe=lastShoe;
+    if(gear){var g=shoes.find(function(s){return String(s.name).toLowerCase().indexOf(gear)>=0||gear.indexOf(String(s.name).toLowerCase())>=0;});if(g)selShoe=g.id;}
+    var gt=icuGuessType(a,a._iv),rp=parseInt(a.icu_rpe);if(!(rp>=1&&rp<=10))rp=0;
+    var rpOpts='<option value="">-</option>';for(var r=1;r<=10;r++)rpOpts+='<option value="'+r+'"'+(r===rp?' selected':'')+'>'+r+'</option>';
+    html+='<div class="card">'+head+
+      (dup==='simile'?'<div style="font-size:12px;color:var(--amb);margin-top:6px">Nel log c’è già un allenamento dello stesso giorno con distanza simile (forse importato da CSV).</div>':'')+
+      '<div class="g2" style="margin-top:8px"><div class="fg"><label>Tipo</label><select id="icu-tp-'+n+'">'+tipi.map(function(t){return '<option value="'+t+'"'+(t===gt?' selected':'')+'>'+t+'</option>';}).join('')+'</select></div>'+
+      '<div class="fg"><label>RPE *</label><select id="icu-rp-'+n+'">'+rpOpts+'</select></div></div>'+
+      '<div class="fg"><label>Nome sessione</label><input id="icu-nm-'+n+'" value="'+esc(a.name||'')+'"></div>'+
+      '<div class="fg"><label>Scarpe *</label><select id="icu-sh-'+n+'"><option value="">- seleziona -</option>'+shoes.map(function(s){return '<option value="'+s.id+'"'+(s.id===selShoe?' selected':'')+'>'+esc(s.name)+'</option>';}).join('')+'</select></div>'+
+      '<div class="fg"><label>Collega a seduta del piano</label><select id="icu-pl-'+n+'">'+planOpts+'</select></div>'+
+      '<div id="icu-err-'+n+'"></div>'+
+      '<button class="btn bp bw" onclick="icuImport('+n+')"><i class="ti ti-check"></i> '+(dup==='simile'?'Importa comunque':'Importa')+(laps.length?' con '+laps.length+' lap':'')+'</button></div>';
+  });
+  html+='<p style="font-size:10px;color:var(--tx3);margin-top:4px">Unità convertite in automatico (cadenza in passi/min, oscillazione in cm, passo in m). La prima volta confronta una seduta con quella importata da CSV.</p>';
+  box.innerHTML=html;
+}
+function icuImport(n){
+  var a=_icuActs[n];if(!a)return;
+  var tp=gi('icu-tp-'+n),sh=gi('icu-sh-'+n),rp=parseInt(gi('icu-rp-'+n)),nm=gi('icu-nm-'+n).trim();
+  var errs=[];if(!tp)errs.push('Tipo');if(!sh)errs.push('Scarpe');if(!rp)errs.push('RPE');if(!nm)errs.push('Nome');
+  var eb=document.getElementById('icu-err-'+n);
+  if(errs.length){if(eb)eb.innerHTML='<div class="err">Obbligatori: '+errs.join(', ')+'</div>';return;}
+  if(icuDup(a)==='simile'&&!confirm('Esiste già un allenamento simile nello stesso giorno. Importare comunque?'))return;
+  var laps=icuLaps(a._iv),ag=laps.length?icuAgg(laps):null;
+  var date=String(a.start_date_local||'').slice(0,10);
+  var w={id:Date.now()+n,date:date,type:tp,name:nm,
+    dist:a.distance?Math.round(a.distance/10)/100:(ag?Math.round(ag.dist*100)/100:0),
+    timeSecs:a.moving_time||(ag?ag.secs:null),
+    hr:a.average_heartrate?Math.round(a.average_heartrate):(ag&&ag.hr?ag.hr:null),
+    hrMax:a.max_heartrate?Math.round(a.max_heartrate):(ag&&ag.hrMax?ag.hrMax:null),
+    cadence:a.average_cadence?Math.round(icuCad(a.average_cadence)):(ag&&ag.cad?ag.cad:null),
+    stride:ag?ag.stride:null,osc:ag?ag.osc:null,gct:ag?ag.gct:null,shoe:sh,rpe:rp,
+    ascent:a.total_elevation_gain?Math.round(a.total_elevation_gain):(ag&&ag.asc>0?Math.round(ag.asc):null),descent:null,
+    notes:'',windNote:null,laps:laps,source:laps.length?'garmin':'manual',via:'intervals',icuId:a.id,meteo:null,meteoNotes:null};
+  W.unshift(w);addKm(sh,w.dist);LS.set('tw',W);
+  var pk=gi('icu-pl-'+n);if(pk)applyPlanLink(w.id,pk);
+  renderStats();checkAchievements();renderIcu();
 }
 
 const PROJECT_URL = "https://claude.ai/project/019ea634-1b85-774f-bc76-e62728552cc7";
