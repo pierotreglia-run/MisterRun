@@ -125,8 +125,15 @@ textarea{resize:vertical;min-height:56px}
   <button id="theme-toggle" class="btn" style="padding:4px 8px;font-size:14px;margin-left:auto" onclick="toggleTheme()">🌙</button>
   <button class="btn" style="padding:4px 8px;font-size:10px" onclick="goTab('profile',null)"><i class="ti ti-settings"></i></button>
 </div>
-<div id="setup-screen" style="display:none"><div class="card">
-  <p class="st">Configura il tuo profilo</p>
+<div id="setup-screen" style="display:none"><div class="card" style="margin-bottom:12px">
+  <p class="st">Hai già un backup?</p>
+  <p style="font-size:12px;color:var(--tx2);margin-bottom:10px">Ripristina da un file JSON esportato in precedenza: profilo, allenamenti, scarpe, obiettivi e piano tornano com'erano, senza reinserire nulla a mano.</p>
+  <button class="btn bp bw" onclick="document.getElementById('imp-json-setup').click()"><i class="ti ti-upload"></i> Ripristina da backup</button>
+  <input type="file" accept=".json,application/json" id="imp-json-setup" style="display:none" onchange="restoreFromFile(this.files[0],true)">
+  <div id="restore-err"></div>
+</div>
+<div class="card">
+  <p class="st">Oppure configura il tuo profilo</p>
   <div class="g2"><div class="fg"><label>Nome *</label><input id="sn" placeholder="es. Piero"></div><div class="fg"><label>Eta</label><input type="number" id="sa" placeholder="38"></div></div>
   <div class="g2"><div class="fg"><label>FC Max (bpm)</label><input type="number" id="sf" placeholder="185"></div><div class="fg"><label>FC riposo (bpm)</label><input type="number" id="sfr" placeholder="42" value="42"></div></div>
   <div class="g2"><div class="fg"><label>Ore sonno</label><input type="number" id="ss" placeholder="6" step="0.5"></div></div>
@@ -209,6 +216,7 @@ textarea{resize:vertical;min-height:56px}
   <div id="li" style="display:none">
     <p class="st">Import da Intervals.icu</p>
     <div id="icu-warn"></div>
+    <div class="card"><p class="st">Sonno e HRV</p><p style="font-size:12px;color:var(--tx2);margin-bottom:8px">Scarica da Intervals.icu durata e punteggio del sonno, HRV e FC a riposo degli ultimi 60 giorni. Garmin non invia lo storico: i giorni si accumulano da quando hai collegato l'account. Li trovi in Stats → Recupero.</p><button class="btn bp bw" onclick="icuWellness()"><i class="ti ti-heart-rate-monitor"></i> Aggiorna sonno e HRV</button><div id="icu-well-msg" style="margin-top:6px"></div></div>
     <div class="g2"><div class="fg"><label>Periodo</label><select id="icu-days"><option value="7">Ultimi 7 giorni</option><option value="14" selected>Ultimi 14 giorni</option><option value="30">Ultimi 30 giorni</option><option value="60">Ultimi 60 giorni</option></select></div><div class="fg"><label>&nbsp;</label><button class="btn bp bw" onclick="icuFetch()">Cerca corse</button></div></div>
     <div id="icu-list"></div>
   </div>
@@ -294,6 +302,7 @@ textarea{resize:vertical;min-height:56px}
   <div class="m2"><div class="met"><div class="ml">Sessioni</div><div class="mv" id="sc">-</div></div><div class="met"><div class="ml">Km totali</div><div class="mv" id="skm">-</div></div></div>
   <div class="m2"><div class="met"><div class="ml">Ritmo medio</div><div class="mv" id="spc">-</div></div><div class="met"><div class="ml">Sessioni qualita</div><div class="mv" id="sq">-</div></div></div>
   <div class="card"><p class="st">Obiettivi</p><div id="goals"></div></div>
+  <div class="card" id="recovery-card"><p class="st">Recupero</p><div id="recovery-body"></div></div>
   <div class="card"><p class="st">Volume ultime 4 settimane</p><div id="wchart" style="display:flex;align-items:flex-end;gap:5px;height:70px;margin-top:6px"></div><div id="wlabels" style="display:flex;gap:5px;margin-top:3px"></div></div>
   <div class="card" id="spark-km-card">
     <p class="st">Km settimanali</p>
@@ -408,6 +417,7 @@ textarea{resize:vertical;min-height:56px}
   <div class="fg"><label>Chiave API</label><input type="password" id="gkey" placeholder="AIza..." autocomplete="off"></div>
   <div class="fg"><label>Modello</label><input id="gmodel" list="gmodels" placeholder="gemini-3.5-flash" autocomplete="off"><datalist id="gmodels"></datalist></div>
   <div style="display:flex;gap:6px"><button class="btn bp" style="flex:1" onclick="saveGem()">Salva</button><button class="btn" onclick="testGem()">Verifica</button><button class="btn" onclick="rmGem()">Rimuovi</button></div>
+  <label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;margin:10px 0 0;color:var(--tx)"><input type="checkbox" id="gemwell" style="width:auto;margin-top:2px" onchange="LS.set('tl_gem_wellness',this.checked)"><span>Invia al coach i dati di recupero (solo medie a 7 giorni di sonno, HRV e FC a riposo, mai le notti singole). Se spento, restano solo su questo dispositivo.</span></label>
   <div id="gemmsg"></div>
 </div>
 <div class="card">
@@ -1334,6 +1344,7 @@ function renderStats(){
   }).join('');
   renderSparklines();
   renderYearComparison();
+  try{renderRecovery();}catch(e){console.error('[recupero]',e);}
   checkShoeWarnings();
 }
 function expJSON(){
@@ -1344,6 +1355,8 @@ function expJSON(){
     targets:TG,
     planDone:planDone,
     customPlan:(window._customPlan&&window._customPlan.length)?window._customPlan:null,
+    achievements:LS.get('tl_achievements')||null,
+    wellness:wlAll(),
     exportedAt:new Date().toISOString()
   };
   var blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
@@ -1737,6 +1750,7 @@ function fillGem(){
   var c=gemCfg();
   var k=document.getElementById('gkey'),m=document.getElementById('gmodel');
   if(k)k.value=c.key;if(m)m.value=c.model;
+  var gw=document.getElementById('gemwell');if(gw)gw.checked=!!LS.get('tl_gem_wellness');
 }
 function saveGem(){
   var k=gi('gkey').trim(),m=gi('gmodel').trim()||GEM_DEFAULT_MODEL;
@@ -1795,6 +1809,7 @@ function coachData(){
     t+=NL+'PROSSIME SEDUTE DEL PIANO:'+NL;
     nxt.forEach(function(p){t+=(p.sett||'')+' '+(p.giorno||'')+': '+(p.tipo||'')+' - '+(p.desc||'')+(p.passo?' | passo '+p.passo:'')+(p.fc?' | FC '+p.fc:'')+NL;});
   }
+  if(LS.get('tl_gem_wellness')){var rs=recoverySummary();if(rs)t+=NL+rs+NL;}
   return t;
 }
 function coachSys(withData){
@@ -2119,6 +2134,91 @@ function icuImport(n){
   renderStats();checkAchievements();renderIcu();
 }
 
+
+// ── RECUPERO: sonno, HRV, FC a riposo (da Intervals.icu) ─────────────────────
+function wlAll(){var a=LS.get('tl_wellness');return Array.isArray(a)?a:[];}
+function wlShift(ymd,n){var d=new Date(ymd+'T12:00:00');d.setDate(d.getDate()+n);return icuYmd(d);}
+function wlNum(v){v=parseFloat(v);return v>0?v:0;}
+async function icuWellness(){
+  var el=document.getElementById('icu-well-msg');if(!el)return;
+  if(!icuOn()){el.innerHTML='<div class="err">Prima imposta ID atleta e chiave in Profilo → Intervals.icu.</div>';return;}
+  var now=new Date(),old=new Date(now.getTime()-60*864e5);
+  el.innerHTML='<div class="ok">Lettura in corso...</div>';
+  try{
+    var id=encodeURIComponent(icuCfg().id||'0');
+    var data=await icuGet('/athlete/'+id+'/wellness?oldest='+icuYmd(old)+'&newest='+icuYmd(now));
+    var rows=Array.isArray(data)?data:[],map={};
+    wlAll().forEach(function(r){map[r.date]=r;});
+    var added=0,upd=0,usable=0;
+    rows.forEach(function(d){
+      var date=String(d.id||'').slice(0,10);if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return;
+      var rec={date:date},sl=wlNum(d.sleepSecs),sc=wlNum(d.sleepScore),rh=wlNum(d.restingHR),hv=wlNum(d.hrv);
+      if(sl)rec.sleepSecs=sl;if(sc)rec.sleepScore=sc;if(rh)rec.restingHR=rh;if(hv)rec.hrv=hv;
+      if(Object.keys(rec).length===1)return;
+      usable++;
+      var o=map[date];
+      if(!o){map[date]=rec;added++;}
+      else{var m=Object.assign({},o,rec);if(JSON.stringify(m)!==JSON.stringify(o)){map[date]=m;upd++;}}
+    });
+    var out=Object.keys(map).sort().map(function(k){return map[k];});
+    LS.set('tl_wellness',out);
+    var msg=(added+upd)?'Aggiornato: '+added+' giorni nuovi, '+upd+' modificati. ':(usable?'Archivio già aggiornato, nessun dato nuovo. Se mancano giorni, sincronizza l\'orologio con Garmin Connect. ':'Intervals.icu non ha ancora sonno e HRV nel periodo: controlla la sincronizzazione Garmin. ');
+    el.innerHTML='<div class="'+((added+upd||usable)?'ok':'err')+'">'+msg+'Archivio: '+out.length+' giorni.</div>';
+    renderRecovery();
+  }catch(e){el.innerHTML='<div class="err">'+esc(e.message)+'</div>';}
+}
+function wlAvg(rows,key){
+  var v=rows.map(function(r){return r[key];}).filter(function(x){return typeof x==='number'&&x>0;});
+  return v.length?{avg:v.reduce(function(a,b){return a+b;},0)/v.length,n:v.length}:null;
+}
+function wlCalc(){
+  var all=wlAll();if(!all.length)return null;
+  var today=td(),r0=wlShift(today,-6),b0=wlShift(today,-34),b1=wlShift(today,-7);
+  var rec=all.filter(function(r){return r.date>=r0&&r.date<=today;});
+  var base=all.filter(function(r){return r.date>=b0&&r.date<=b1;});
+  var out={rec:rec,total:all.length,m:{}};
+  ['hrv','restingHR','sleepSecs'].forEach(function(k){
+    var a=wlAvg(rec,k),b=wlAvg(base,k);
+    out.m[k]={cur:a&&a.n>=4?a.avg:null,base:b&&b.n>=14?b.avg:null,nCur:a?a.n:0,nBase:b?b.n:0};
+  });
+  return out;
+}
+function wlHm(s){var h=Math.floor(s/3600),m=Math.round(s%3600/60);if(m===60){h++;m=0;}return h+':'+(m<10?'0':'')+m;}
+function renderRecovery(){
+  var box=document.getElementById('recovery-body');if(!box)return;
+  var c=wlCalc();
+  if(!c){box.innerHTML='<p style="font-size:12px;color:var(--tx2)">Nessun dato di recupero. Importali da Aggiungi → Import Intervals → Aggiorna sonno e HRV.</p>';return;}
+  var today=td(),byDate={};c.rec.forEach(function(r){byDate[r.date]=r;});
+  var rows='';
+  for(var i=0;i<7;i++){
+    var d=wlShift(today,-i),r=byDate[d]||{};
+    rows+='<tr><td>'+d.slice(8,10)+'/'+d.slice(5,7)+'</td><td>'+(r.sleepSecs?wlHm(r.sleepSecs):'-')+'</td><td>'+(r.sleepScore?Math.round(r.sleepScore):'-')+'</td><td>'+(r.restingHR?Math.round(r.restingHR):'-')+'</td><td>'+(r.hrv?itn(r.hrv,1):'-')+'</td></tr>';
+  }
+  var html='<table style="width:100%;border-collapse:collapse;font-size:12px"><tr style="color:var(--tx3)"><th style="text-align:left;font-weight:400">Giorno</th><th style="text-align:right;font-weight:400">Sonno</th><th style="text-align:right;font-weight:400">Score</th><th style="text-align:right;font-weight:400">FC rip.</th><th style="text-align:right;font-weight:400">HRV</th></tr>'+rows+'</table>';
+  html=html.replace(/<td>/g,'<td style="padding:3px 0;text-align:right">').replace(/<td style="padding:3px 0;text-align:right">(\d\d\/\d\d)/g,'<td style="padding:3px 0;text-align:left">$1');
+  function line(label,m,fmt,diffFn){
+    if(m.cur===null)return '<div style="font-size:12px;margin-top:6px;color:var(--tx3)">'+label+': dati insufficienti negli ultimi 7 giorni ('+m.nCur+' su 7, ne servono 4)</div>';
+    var t='<div style="font-size:12px;margin-top:6px"><b style="font-weight:500">'+label+' (media 7 giorni): '+fmt(m.cur)+'</b>';
+    if(m.base===null)t+=' <span style="color:var(--tx3)">· base in costruzione</span>';
+    else{var df=diffFn(m.cur,m.base);t+=' <span style="color:var(--tx2)">· base '+fmt(m.base)+'</span> <span style="color:'+(df.warn?'var(--amb)':'var(--grn)')+'">'+df.txt+'</span>';}
+    return t+'</div>';
+  }
+  html+=line('HRV',c.m.hrv,function(v){return itn(v,1)+' ms';},function(a,b){var p=(a-b)/b*100;return {txt:(p>0?'+':'')+itn(p,0)+'%',warn:p<-10};});
+  html+=line('FC a riposo',c.m.restingHR,function(v){return itn(v,0)+' bpm';},function(a,b){var d=a-b;return {txt:(d>0?'+':'')+itn(d,0)+' bpm',warn:d>=3};});
+  html+=line('Sonno',c.m.sleepSecs,function(v){return wlHm(v);},function(a,b){var d=Math.round((a-b)/60);return {txt:(d>0?'+':'')+d+' min',warn:d<=-45};});
+  var building=['hrv','restingHR','sleepSecs'].every(function(k){return c.m[k].base===null;});
+  html+='<p style="font-size:10px;color:var(--tx3);margin-top:8px">'+(building?'La base personale richiede circa 3-4 settimane di dati quotidiani (ora '+c.total+' giorni in archivio). ':'')+'Valori indicativi: conta la tendenza, non il singolo giorno.</p>';
+  box.innerHTML=html;
+}
+function recoverySummary(){
+  var c=wlCalc();if(!c)return '';
+  var parts=[];
+  function add(label,m,fmt){if(m.cur===null)return;parts.push(label+' '+fmt(m.cur)+(m.base===null?' (base non ancora disponibile)':' (base '+fmt(m.base)+')'));}
+  add('HRV medio',c.m.hrv,function(v){return itn(v,1)+' ms';});
+  add('FC a riposo media',c.m.restingHR,function(v){return itn(v,0)+' bpm';});
+  add('sonno medio',c.m.sleepSecs,function(v){return wlHm(v)+' h';});
+  return parts.length?'RECUPERO (medie ultimi 7 giorni rispetto alla base personale, valori indicativi): '+parts.join('; ')+'.':'';
+}
 const PROJECT_URL = "https://claude.ai/project/019ea634-1b85-774f-bc76-e62728552cc7";
 
 function copyAndOpenLegacy(txt){
@@ -3391,12 +3491,19 @@ function impJSON(){
 }
 
 function doImpJSON(){
-  var file=document.getElementById('imp-json-file').files[0];
+  var inp=document.getElementById('imp-json-file');
+  restoreFromFile(inp.files[0],false);
+  inp.value='';
+}
+function restoreFromFile(file,fromSetup){
   if(!file)return;
   var reader=new FileReader();
   reader.onload=function(e){
     try{
       var data=JSON.parse(e.target.result);
+      var valid=data&&typeof data==='object'&&(data.profile||(data.workouts&&data.workouts.length));
+      if(!valid)throw new Error('Il file non sembra un backup di questa app: mancano profilo e allenamenti.');
+      if(!fromSetup&&W&&W.length&&!confirm('Il backup sostituirà i dati attuali ('+W.length+' allenamenti). Continuare?'))return;
       if(data.profile){P=data.profile;LS.set('tp',P);}
       if(data.workouts&&data.workouts.length){W=data.workouts;LS.set('tw',W);}
       if(data.shoes&&data.shoes.length){SH=data.shoes;LS.set('ts',SH);}
@@ -3406,10 +3513,15 @@ function doImpJSON(){
         window._customPlan=data.customPlan;
         LS.set('tl_custom_plan',data.customPlan);
       }
-      alert('DB importato: '+W.length+' allenamenti, '+SH.length+' scarpe.');
+      if(data.achievements)LS.set('tl_achievements',data.achievements);
+      if(data.wellness&&data.wellness.length)LS.set('tl_wellness',data.wellness);
+      LS.set('tl_last_backup',data.exportedAt||new Date().toISOString());
+      alert('Backup ripristinato: '+(data.workouts?data.workouts.length:0)+' allenamenti, '+(data.shoes?data.shoes.length:0)+' scarpe.'+(data.profile?'':' Il backup non contiene il profilo: dovrai reinserirlo.'));
       location.reload();
-    }catch(err){alert('Errore nel file JSON: '+err.message);}
-    document.getElementById('imp-json-file').value='';
+    }catch(err){
+      if(fromSetup)smsg('restore-err','err',err.message);else alert('Errore nel file JSON: '+err.message);
+    }
+    var a=document.getElementById('imp-json-setup');if(a)a.value='';
   };
   reader.readAsText(file);
 }
