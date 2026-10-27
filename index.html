@@ -435,6 +435,7 @@ textarea{resize:vertical;min-height:56px}
   <div style="display:flex;gap:6px"><button class="btn bp" style="flex:1" onclick="saveWx()">Salva</button><button class="btn" onclick="geoWx()">Usa posizione attuale</button></div>
   <div id="wxmsg"></div>
 </div>
+<button class="btn bw" style="margin-bottom:12px" onclick="showChangelog()"><i class="ti ti-sparkles"></i> Novità di questa versione</button>
 <div class="card">
   <p class="st">Zone FC (Karvonen)</p>
   <p style="font-size:11px;color:var(--tx2);margin-bottom:10px">Calcolate da FCmax e FC riposo. Modifica manualmente se il tuo coach usa soglie diverse.</p>
@@ -1365,6 +1366,7 @@ function expJSON(){
     customPlan:(window._customPlan&&window._customPlan.length)?window._customPlan:null,
     achievements:LS.get('tl_achievements')||null,
     wellness:wlAll(),
+    planNotes:LS.get('tl_plan_notes')||{},
     exportedAt:new Date().toISOString()
   };
   var blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
@@ -1522,6 +1524,7 @@ function renderPlan(){
       '<div class="pdesc">'+(p.nome?'<strong>'+p.nome+'</strong> — ':'')+(p.desc||'')+'</div>'+
       '<div class="pmeta">'+(p.passo&&p.passo!=='-'?p.passo:'')+(p.fc&&p.fc!=='n.a.'&&p.fc!=='-'?' - FC '+p.fc:'')+'</div>'+
       (p.note?'<div style="font-size:10px;color:var(--amb);margin-top:2px">'+p.note+'</div>':'')+
+      planNoteBadge(key)+
       '</div>'+
       (_linkedCount[key]?'<button data-idx="'+W.findIndex(function(w){return w.planKey===key;})+'" onclick="event.stopPropagation();openLinkedWorkouts(this.dataset.idx)" style="flex-shrink:0;margin-left:4px;margin-top:2px;padding:4px 8px;border:1px solid var(--grn);border-radius:var(--r);background:rgba(0,212,170,.1);color:var(--grn);font-size:10px;cursor:pointer;font-weight:700"><i class="ti ti-link"></i> '+_linkedCount[key]+'</button>':'')+
       '<button onclick="askCoachAboutPlan('+i+')" style="flex-shrink:0;margin-left:4px;margin-top:2px;padding:4px 8px;border:0.5px solid var(--blu);border-radius:var(--r);background:var(--blubg);color:var(--blu);font-size:10px;cursor:pointer;white-space:nowrap"><i class="ti ti-message-question"></i></button>'+
@@ -1812,7 +1815,7 @@ function coachData(){
     });
   }
   var plan=(window._customPlan&&window._customPlan.length)?window._customPlan:PLAN;
-  var nxt=plan.filter(function(p){return !planDone[(p.fase||'')+'|'+(p.sett||'')+'|'+(p.giorno||'')+'|'+(p.n||'')];}).slice(0,4);
+  var nxt=planUpcoming(4);
   if(nxt.length){
     t+=NL+'PROSSIME SEDUTE DEL PIANO:'+NL;
     nxt.forEach(function(p){t+=(p.sett||'')+' '+(p.giorno||'')+': '+(p.tipo||'')+' - '+(p.desc||'')+(p.passo?' | passo '+p.passo:'')+(p.fc?' | FC '+p.fc:'')+NL;});
@@ -1935,20 +1938,24 @@ async function coachModal(txt,opts){
     }
     box.innerHTML=head('Risposta del coach')+'<div class="mt" style="overflow-y:auto;margin-bottom:12px;flex:1">'+mdLite(ans)+'</div>'+
       '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">'+
-      (opts.wid?'<button class="btn bp" style="flex:1" id="cai-save">Salva nota</button>':'')+
+      ((opts.wid||opts.planKey)?'<button class="btn bp" style="flex:1" id="cai-save">Salva nota</button>':'')+
       '<button class="btn" style="flex:1" id="cai-chat">Continua in chat</button><button class="btn" style="flex:1" id="cai-copy">Copia</button></div><button class="btn bw" id="cai-close">Chiudi</button>';
     box.querySelector('#cai-close').onclick=function(){modal.remove();};
     box.querySelector('#cai-copy').onclick=function(){
       if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(ans).then(function(){box.querySelector('#cai-copy').textContent='Copiato';});
     };
     box.querySelector('#cai-chat').onclick=function(){
-      chatH=[{role:'user',text:txt,label:'📎 '+String(txt).split('\n')[0].slice(0,80)},{role:'model',text:ans}];
-      chatCtx.wid=opts.wid||null;
+      chatH=[{role:'user',text:txt,label:'📎 '+(opts.question?'Domanda sulla seduta: '+opts.question:String(txt).split('\n')[0].slice(0,80))},{role:'model',text:ans}];
+      chatCtx.wid=opts.wid||null;chatCtx.planKey=opts.planKey||null;chatCtx.planLabel=opts.planLabel||'';
       modal.remove();renderChat();
       var nb=document.querySelector('[onclick^="goTab(\'chat\'"]');goTab('chat',nb);
     };
     var sv=box.querySelector('#cai-save');
     if(sv)sv.onclick=function(){
+      if(opts.planKey){
+        savePlanNote(opts.planKey,opts.planLabel,(opts.question?'Domanda: '+opts.question+'\n\n':'')+'Coach: '+ans);
+        modal.remove();openPlanNotes(opts.planKey);return;
+      }
       var w=W.find(function(x){return x.id===opts.wid;});if(!w)return;
       if(!w.coachNotes)w.coachNotes=[];
       w.coachNotes.unshift({date:new Date().toLocaleDateString('it-IT')+' '+new Date().toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}),text:plainMd(ans)});
@@ -2235,7 +2242,7 @@ function recoverySummary(){
 }
 
 // ── CHAT: salvataggio di risposte e conversazioni come note dell'allenamento ──
-var chatCtx={wid:null};
+var chatCtx={wid:null,planKey:null,planLabel:''};
 function plainMd(t){return String(t).replace(/\*\*(.+?)\*\*/g,'$1').replace(/^#{1,4}\s*/gm,'').replace(/^\s*[\*\-]\s+/gm,'• ');}
 function chatNoteText(from,to){
   var out=[];
@@ -2245,44 +2252,121 @@ function chatNoteText(from,to){
   }
   return out.join('\n\n');
 }
+function nowStamp(){return new Date().toLocaleDateString('it-IT')+' '+new Date().toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'});}
 function saveCoachNoteTo(wid,text){
   var w=W.find(function(x){return x.id===wid;});if(!w)return null;
   if(!w.coachNotes)w.coachNotes=[];
-  w.coachNotes.unshift({date:new Date().toLocaleDateString('it-IT')+' '+new Date().toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}),text:plainMd(text)});
+  w.coachNotes.unshift({date:nowStamp(),text:plainMd(text)});
   LS.set('tw',W);
   return w.date+' · '+(w.name||w.type);
 }
+// ── Note coach sulle sedute del piano (anche future) ──
+function planNotesAll(){var o=LS.get('tl_plan_notes');return (o&&typeof o==='object')?o:{};}
+function planItemByKey(key){
+  var plan=(window._customPlan&&window._customPlan.length)?window._customPlan:PLAN;
+  return plan.find(function(p){return (p.fase||'')+'|'+(p.sett||'')+'|'+(p.giorno||'')+'|'+(p.n||'')===key;});
+}
+function planKeyLabel(key){var p=planItemByKey(key);return p?(p.sett||'')+' '+(p.giorno||'')+' · '+(p.nome||p.desc||''):key;}
+function savePlanNote(key,label,text){
+  var all=planNotesAll();if(!all[key])all[key]=[];
+  all[key].unshift({date:nowStamp(),text:plainMd(text)});
+  LS.set('tl_plan_notes',all);
+  try{renderPlan();}catch(e){}
+  return label||planKeyLabel(key);
+}
+function planNoteBadge(key){
+  var n=(planNotesAll()[key]||[]).length;if(!n)return '';
+  return '<button data-k="'+esc(key)+'" onclick="event.stopPropagation();openPlanNotes(this.dataset.k)" style="margin-top:4px;padding:2px 8px;border:0.5px solid var(--blu);border-radius:20px;background:var(--blubg);color:var(--blu);font-size:10px;cursor:pointer"><i class="ti ti-bookmark"></i> Note coach ('+n+')</button>';
+}
+function deletePlanNote(key,i){
+  var all=planNotesAll();if(!all[key])return;
+  all[key].splice(i,1);if(!all[key].length)delete all[key];
+  LS.set('tl_plan_notes',all);
+  try{renderPlan();}catch(e){}
+  openPlanNotes(key);
+}
+function openPlanNotes(key){
+  var ex=document.getElementById('plan-notes-modal');if(ex)ex.remove();
+  var notes=planNotesAll()[key]||[];
+  var modal=document.createElement('div');modal.id='plan-notes-modal';
+  modal.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  var box=document.createElement('div');
+  box.style.cssText='background:var(--bg);border-radius:var(--r2);padding:18px;max-width:500px;width:100%;max-height:85vh;display:flex;flex-direction:column';
+  var list=notes.length?notes.map(function(n,i){
+    return '<div style="padding:8px;background:var(--bg2);border-radius:var(--r);margin-bottom:6px;position:relative"><div style="font-size:10px;color:var(--tx3);margin-bottom:4px">'+esc(n.date)+'</div><div style="font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word">'+esc(n.text)+'</div><button data-i="'+i+'" class="pn-del" style="position:absolute;top:6px;right:6px;background:none;border:none;color:var(--tx3);cursor:pointer;font-size:12px">&#10005;</button></div>';
+  }).join(''):'<p style="font-size:12px;color:var(--tx3);text-align:center;padding:12px">Nessuna nota salvata</p>';
+  box.innerHTML='<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="font-size:14px;font-weight:500;flex:1">Note coach</span><button class="btn" id="pn-close" style="padding:4px 8px">Chiudi</button></div><div style="font-size:11px;color:var(--tx2);margin-bottom:10px">'+esc(planKeyLabel(key))+'</div><div style="flex:1;overflow-y:auto">'+list+'</div>';
+  modal.appendChild(box);document.body.appendChild(modal);
+  modal.addEventListener('click',function(e){if(e.target===modal)modal.remove();});
+  box.querySelector('#pn-close').onclick=function(){modal.remove();};
+  box.querySelectorAll('.pn-del').forEach(function(b){b.onclick=function(){if(confirm('Eliminare questa nota?'))deletePlanNote(key,parseInt(b.dataset.i,10));};});
+}
+// prossime sedute del piano: non completate, escluse le settimane già concluse (stessa logica della Home)
+function planUpcoming(n){
+  var now=new Date(),plan=(window._customPlan&&window._customPlan.length)?window._customPlan:PLAN;
+  var mon=new Date(now);mon.setHours(0,0,0,0);mon.setDate(mon.getDate()-((mon.getDay()+6)%7));
+  var months={Gen:0,Feb:1,Mar:2,Apr:3,Mag:4,Giu:5,Lug:6,Ago:7,Set:8,Ott:9,Nov:10,Dic:11};
+  function wEnd(sett){
+    if(!sett)return null;var d2,mo;
+    var m2=String(sett).match(/(\d+)[\-\u2013](\d+)\s+(\w+)/);
+    if(m2){d2=parseInt(m2[2],10);mo=months[m2[3]];}
+    else{var m3=String(sett).match(/\d+\s+\w+[\-\u2013](\d+)\s+(\w+)/);if(m3){d2=parseInt(m3[1],10);mo=months[m3[2]];}}
+    if(d2===undefined||mo===undefined)return null;
+    var yr=now.getFullYear(),d=new Date(yr,mo,d2,23,59,59);
+    if(now-d>180*24*3600*1000)d=new Date(yr+1,mo,d2,23,59,59);
+    return d;
+  }
+  return plan.filter(function(p){
+    var k=(p.fase||'')+'|'+(p.sett||'')+'|'+(p.giorno||'')+'|'+(p.n||'');
+    if(planDone[k]||p.tipo==='Riposo')return false;
+    var e=wEnd(p.sett);if(e&&e<mon)return false;
+    return true;
+  }).slice(0,n);
+}
+function saveNoteTarget(t,text){
+  return t.planKey?savePlanNote(t.planKey,t.label,text):saveCoachNoteTo(t.wid,text);
+}
 function chatPickTarget(cb){
-  if(chatCtx.wid&&W.some(function(w){return w.id===chatCtx.wid;})){cb(chatCtx.wid);return;}
+  if(chatCtx.planKey){cb({planKey:chatCtx.planKey,label:chatCtx.planLabel||planKeyLabel(chatCtx.planKey)});return;}
+  if(chatCtx.wid&&W.some(function(w){return w.id===chatCtx.wid;})){cb({wid:chatCtx.wid});return;}
   var ex=document.getElementById('chat-pick-modal');if(ex)ex.remove();
   var modal=document.createElement('div');modal.id='chat-pick-modal';
   modal.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
   var box=document.createElement('div');
   box.style.cssText='background:var(--bg);border-radius:var(--r2);padding:16px;max-width:480px;width:100%;max-height:80vh;display:flex;flex-direction:column';
-  box.innerHTML='<p style="font-size:14px;font-weight:500;margin-bottom:8px">Salva in quale allenamento?</p><div id="chat-pick-list" style="overflow-y:auto;flex:1"></div><button class="btn bw" id="chat-pick-close" style="margin-top:8px">Annulla</button>';
+  box.innerHTML='<p style="font-size:14px;font-weight:500;margin-bottom:8px">Dove salvo la nota?</p><div id="chat-pick-list" style="overflow-y:auto;flex:1"></div><button class="btn bw" id="chat-pick-close" style="margin-top:8px">Annulla</button>';
   modal.appendChild(box);document.body.appendChild(modal);
   modal.addEventListener('click',function(e){if(e.target===modal)modal.remove();});
   box.querySelector('#chat-pick-close').onclick=function(){modal.remove();};
   var list=box.querySelector('#chat-pick-list');
-  W.slice().sort(function(a,b){return String(b.date).localeCompare(String(a.date));}).slice(0,15).forEach(function(w){
-    var b=document.createElement('button');b.className='btn bw';b.style.cssText='text-align:left;margin-bottom:6px';
-    b.textContent=w.date+' · '+(w.name||w.type)+' · '+itn(parseFloat(w.dist)||0,2)+' km';
-    b.onclick=function(){chatCtx.wid=w.id;modal.remove();cb(w.id);};
-    list.appendChild(b);
+  function head(t){var h=document.createElement('p');h.style.cssText='font-size:11px;color:var(--tx2);margin:6px 0';h.textContent=t;list.appendChild(h);}
+  function item(label,fn){var b=document.createElement('button');b.className='btn bw';b.style.cssText='text-align:left;margin-bottom:6px';b.textContent=label;b.onclick=function(){modal.remove();fn();};list.appendChild(b);}
+  var plan=(window._customPlan&&window._customPlan.length)?window._customPlan:PLAN;
+  var next=planUpcoming(6);
+  if(next.length){
+    head('Prossime sedute del piano');
+    next.forEach(function(p){
+      var key=(p.fase||'')+'|'+(p.sett||'')+'|'+(p.giorno||'')+'|'+(p.n||''),lab=(p.sett||'')+' '+(p.giorno||'')+' · '+String(p.nome||p.desc||'').slice(0,50);
+      item(lab,function(){chatCtx.planKey=key;chatCtx.planLabel=lab;chatCtx.wid=null;cb({planKey:key,label:lab});});
+    });
+  }
+  head('Allenamenti recenti');
+  W.slice().sort(function(a,b){return String(b.date).localeCompare(String(a.date));}).slice(0,10).forEach(function(w){
+    item(w.date+' · '+(w.name||w.type)+' · '+itn(parseFloat(w.dist)||0,2)+' km',function(){chatCtx.wid=w.id;chatCtx.planKey=null;cb({wid:w.id});});
   });
-  if(!W.length)list.innerHTML='<p style="font-size:12px;color:var(--tx3)">Nessun allenamento nel log.</p>';
+  if(!W.length&&!next.length)list.innerHTML='<p style="font-size:12px;color:var(--tx3)">Niente a cui collegare la nota.</p>';
 }
 function chatSave(i){
   var from=(i>0&&chatH[i-1].role==='user')?i-1:i;
-  chatPickTarget(function(wid){
-    var lab=saveCoachNoteTo(wid,chatNoteText(from,i));if(!lab)return;
+  chatPickTarget(function(t){
+    var lab=saveNoteTarget(t,chatNoteText(from,i));if(!lab)return;
     for(var k=from;k<=i;k++)chatH[k].saved=lab;
     renderChat();
   });
 }
 function chatSaveAll(){
-  chatPickTarget(function(wid){
-    var lab=saveCoachNoteTo(wid,chatNoteText(0,chatH.length-1));if(!lab)return;
+  chatPickTarget(function(t){
+    var lab=saveNoteTarget(t,chatNoteText(0,chatH.length-1));if(!lab)return;
     chatH.forEach(function(m){m.saved=lab;});
     renderChat();
   });
@@ -2290,7 +2374,7 @@ function chatSaveAll(){
 function chatNew(){
   var unsaved=chatH.some(function(m){return m.role==='model'&&!m.saved&&m.text!=='...';});
   if(chatH.length&&unsaved&&!confirm('La conversazione non è stata salvata. Iniziarne una nuova?'))return;
-  chatH=[];chatCtx.wid=null;renderChat();
+  chatH=[];chatCtx.wid=null;chatCtx.planKey=null;chatCtx.planLabel='';renderChat();
 }
 
 // ── METEO: testo unificato per l'analisi + recupero automatico (Open-Meteo) ──
@@ -3294,7 +3378,7 @@ function buildPlanCoachText(idx,question){
     txt+='╚══════════════════════════════════╝'+NL;
   }
 
-  copyAndOpen(txt);
+  copyAndOpen(txt,{planKey:(p.fase||'')+'|'+(p.sett||'')+'|'+(p.giorno||'')+'|'+(p.n||''),planLabel:(p.sett||'')+' '+(p.giorno||'')+' · '+(p.nome||p.desc||''),question:question});
 }
 
 
@@ -3675,6 +3759,7 @@ function restoreFromFile(file,fromSetup){
       }
       if(data.achievements)LS.set('tl_achievements',data.achievements);
       if(data.wellness&&data.wellness.length)LS.set('tl_wellness',data.wellness);
+      if(data.planNotes&&Object.keys(data.planNotes).length)LS.set('tl_plan_notes',data.planNotes);
       LS.set('tl_last_backup',data.exportedAt||new Date().toISOString());
       alert('Backup ripristinato: '+(data.workouts?data.workouts.length:0)+' allenamenti, '+(data.shoes?data.shoes.length:0)+' scarpe.'+(data.profile?'':' Il backup non contiene il profilo: dovrai reinserirlo.'));
       location.reload();
@@ -3767,8 +3852,18 @@ function togglePlanAcc(key){
 
 // calcFormaScore rimossa — la card "Forma" in Home ora mostra la sparkline del passo (vedi renderDashboard)
 
-var APP_VERSION='3.2';
-var CHANGELOG=[{v:'3.2',date:'Luglio 2026',title:'Novità versione 3.2',items:[
+var APP_VERSION='3.3';
+var CHANGELOG=[{v:'3.3',date:'Ottobre 2026',title:'Novità versione 3.3',items:[
+  'Nuova grafica nel tema chiaro — fondo celestino, blu notte e cobalto al posto dell\'arancione; anche le schede da condividere seguono il tema',
+  'Coach AI con Gemini — in Profilo → Coach AI inserisci la tua chiave gratuita (aistudio.google.com/apikey): il coach risponde direttamente nell\'app, senza copia e incolla. Per generare le risposte, profilo e allenamenti vengono inviati a Google',
+  'Chat con il coach — nella tab Coach fai domande libere e salva risposte o intere conversazioni come note dell\'allenamento',
+  'Note sulle sedute future — salva la risposta del coach sulla seduta del piano e ritrovala nel Piano con il badge «Note coach»',
+  'Import da Intervals.icu — in Aggiungi → Import Intervals importi le corse con i lap dal tuo Garmin (serve un account gratuito su Intervals.icu collegato a Garmin e la chiave API in Profilo). L\'import da CSV resta disponibile',
+  'Recupero in Stats — sonno, HRV e FC a riposo da Intervals.icu, confrontati con la tua media',
+  'Meteo automatico — temperatura, umidità e vento delle tue corse, che il coach considera nell\'analisi. Imposta la località in Profilo',
+  'Ripristina da backup — nella schermata iniziale puoi ricaricare un file di backup invece di reinserire tutto. Il backup ora include traguardi, recupero e note coach sul piano',
+  'Le chiavi API restano solo sul tuo dispositivo e non finiscono nel backup',
+]},{v:'3.2',date:'Luglio 2026',title:'Novità versione 3.2',items:[
   'Obiettivi personali obbligatori — ogni profilo imposta i propri target 5km/10km al primo avvio, non più condivisi tra utenti',
   'Piano vs Reale — barra di avanzamento in Home e grafico 8 settimane in Stats, basato sul passo target di ogni seduta',
   'Forma e Fatica (CTL/ATL/TSB) — il modello usato dai coach professionisti, in Stats',
