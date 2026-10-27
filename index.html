@@ -429,6 +429,13 @@ textarea{resize:vertical;min-height:56px}
   <div id="icumsg"></div>
 </div>
 <div class="card">
+  <p class="st">Meteo degli allenamenti</p>
+  <p style="font-size:11px;color:var(--tx2);margin-bottom:10px">L'app recupera in automatico temperatura, umidità e vento delle tue corse (ultimi 90 giorni) da Open-Meteo, per questa località. Se l'ora di partenza non è nota usa la tua fascia oraria abituale. Il vento che scrivi a mano resta sempre nell'analisi.</p>
+  <div class="g2"><div class="fg"><label>Latitudine</label><input id="wxlat" placeholder="40,35" inputmode="decimal" autocomplete="off"></div><div class="fg"><label>Longitudine</label><input id="wxlon" placeholder="18,17" inputmode="decimal" autocomplete="off"></div></div>
+  <div style="display:flex;gap:6px"><button class="btn bp" style="flex:1" onclick="saveWx()">Salva</button><button class="btn" onclick="geoWx()">Usa posizione attuale</button></div>
+  <div id="wxmsg"></div>
+</div>
+<div class="card">
   <p class="st">Zone FC (Karvonen)</p>
   <p style="font-size:11px;color:var(--tx2);margin-bottom:10px">Calcolate da FCmax e FC riposo. Modifica manualmente se il tuo coach usa soglie diverse.</p>
   <div id="fc-zones-display"></div>
@@ -486,12 +493,13 @@ function boot(){
     try{fn();}catch(e){console.error('[boot] '+name+' failed:',e);}
   }
   safeCall(fillSH,'fillSH');
-  safeCall(fillProf,'fillProf');safeCall(fillGem,'fillGem');safeCall(fillIcu,'fillIcu');safeCall(renderChat,'renderChat');
+  safeCall(fillProf,'fillProf');safeCall(fillGem,'fillGem');safeCall(fillIcu,'fillIcu');safeCall(fillWx,'fillWx');safeCall(renderChat,'renderChat');
   safeCall(renderStats,'renderStats');
   safeCall(renderPlan,'renderPlan');
   safeCall(renderShoes,'renderShoes');
   safeCall(renderTgts,'renderTgts');
   safeCall(fetchMet,'fetchMet');
+  safeCall(wxBackfill,'wxBackfill');
   safeCall(renderDashboard,'renderDashboard');
   safeCall(checkBackupReminder,'checkBackupReminder');
   safeCall(checkWeeklySummary,'checkWeeklySummary');
@@ -998,14 +1006,14 @@ function analyzeW(){
     if(l.desc&&parseFloat(l.desc)>0)lapLine+=' Discesa:-'+Math.round(parseFloat(l.desc))+'m';
     return lapLine;
   }).join('\n'):'(inserimento manuale — nessun dato lap)';
-  var metCtx=w.meteo?' Meteo: '+w.meteo.temp+'C, umidita '+w.meteo.hum+'%, vento '+w.meteo.wind+'km/h'+(w.meteo.gusts&&w.meteo.gusts>w.meteo.wind?' raffiche '+w.meteo.gusts+'km/h':'')+(w.windNote?' — '+w.windNote:'')+'.':(w.windNote?' Vento: '+w.windNote+'.':'');
+  var wxq=wxText(w);var metCtx=wxq?' | Meteo: '+wxq+'.':'';
   var elevCtx=(w.ascent||w.descent)?' | Dislivello: +'+(w.ascent||0)+'m / -'+(w.descent||0)+'m':'';
   var txt='=== ANALISI ALLENAMENTO ===\n'+
     'Data: '+w.date+' | Tipo: '+(w.name||w.type)+' | Distanza: '+w.dist+'km | RPE: '+w.rpe+elevCtx+'\n'+
     'Scarpe: '+(sh&&sh.name||'?')+metCtx+'\n\n'+
     'LAP:\n'+lapStr+'\n\n'+
     'Note: '+(w.notes||'—')+'\n\n'+
-    'Fammi unanalisi clinica lap per lap: deriva passo/cadenza/GCT/falcata, confronto con baseline, cosa tengo e cosa correggo. Se c\'e dislivello significativo, valuta anche l\'impatto del percorso sul ritmo e sullo sforzo percepito.';
+    'Fammi unanalisi clinica lap per lap: deriva passo/cadenza/GCT/falcata, confronto con baseline, cosa tengo e cosa correggo. Se c\'e dislivello significativo, valuta anche l\'impatto del percorso sul ritmo e sullo sforzo percepito.'+WX_ASK;
   copyAndOpen(txt,{wid:w.id});
 }
 
@@ -1585,7 +1593,7 @@ function evalTgt(){
     var ctx=[];
     if(w.sleep)ctx.push('sonno: '+({'1':'pessimo','2':'scarso','3':'discreto','4':'buono','5':'ottimo'}[w.sleep]||w.sleep));
     if(w.fatigue)ctx.push('fatica: '+({'1':'fresco','2':'normale','3':'stanco','4':'molto stanco'}[w.fatigue]||w.fatigue));
-    if(w.meteo)ctx.push(w.meteo.temp+'C '+w.meteo.hum+'% umidita vento '+w.meteo.wind+'km/h');
+    var wxq1=wxText(w);if(wxq1)ctx.push('meteo: '+wxq1);
     var elevStr=(w.ascent||w.descent)?' | Dislivello: +'+(w.ascent||0)+'m/-'+(w.descent||0)+'m':'';
     qualTxt+=NL+'┌─ '+w.date+' | '+(w.name||w.type)+' | '+w.dist+'km | RPE '+w.rpe+elevStr+(sh?' | '+sh.name:'')+NL;
     if(ctx.length)qualTxt+='│  Contesto: '+ctx.join(' | ')+NL;
@@ -1655,7 +1663,7 @@ function evalTgt(){
     var ctx2=[];
     if(w.sleep)ctx2.push('sonno: '+({'1':'pessimo','2':'scarso','3':'discreto','4':'buono','5':'ottimo'}[w.sleep]||w.sleep));
     if(w.fatigue)ctx2.push('fatica: '+({'1':'fresco','2':'normale','3':'stanco','4':'molto stanco'}[w.fatigue]||w.fatigue));
-    if(w.meteo){var gustE=w.meteo.gusts&&w.meteo.gusts>w.meteo.wind?' raffiche '+w.meteo.gusts+'km/h':'';ctx2.push(w.meteo.temp+'C '+w.meteo.hum+'%um vento '+w.meteo.wind+gustE+'km/h');}if(w.windNote)ctx2.push('vento: '+w.windNote);
+    var wxq2=wxText(w);if(wxq2)ctx2.push('meteo: '+wxq2);
     easyTxt+='  '+w.date+' | '+(w.name||w.type)+' | '+w.dist+'km | '+pcStr(w.dist,w.timeSecs)+' | RPE'+w.rpe;
     if(w.hr)easyTxt+=' | FC '+w.hr+'bpm'+( fcZone?' ('+fcZone+')':'');
     if(ctx2.length)easyTxt+=' | '+ctx2.join(', ');
@@ -1794,7 +1802,7 @@ function coachData(){
   t+='ULTIMI ALLENAMENTI (dal più recente):'+NL;
   if(!ws.length)t+='(nessun allenamento in archivio)'+NL;
   ws.forEach(function(w){
-    t+=w.date+' | '+(w.name||w.type)+' ['+w.type+'] | '+w.dist+' km | '+pcStr(w.dist,w.timeSecs)+' | RPE '+(w.rpe||'?')+(w.hr?' | FC '+w.hr+' bpm':'')+(w.notes?' | '+w.notes:'')+NL;
+    t+=w.date+' | '+(w.name||w.type)+' ['+w.type+'] | '+w.dist+' km | '+pcStr(w.dist,w.timeSecs)+' | RPE '+(w.rpe||'?')+(w.hr?' | FC '+w.hr+' bpm':'')+(wxText(w)?' | meteo: '+wxText(w):'')+(w.notes?' | '+w.notes:'')+NL;
   });
   var q=ws.filter(function(w){return w.laps&&w.laps.length&&['Qualità','Gara'].indexOf(w.type)>=0;}).slice(0,3);
   if(q.length){
@@ -1813,7 +1821,7 @@ function coachData(){
   return t;
 }
 function coachSys(withData){
-  var s='Sei il coach di corsa personale di '+((P&&P.name)||'un runner amatoriale')+'. Rispondi sempre in italiano, in modo diretto e concreto, basandoti sui numeri forniti (lap, passo, FC, cadenza, GCT, RPE) e non su consigli generici. Se un dato manca, dillo invece di inventarlo. Usa il formato numerico italiano (virgola decimale, punto per le migliaia) e il passo nel formato m:ss/km. Non sei un medico: per dolori o sintomi consiglia di sentire un professionista.';
+  var s='Sei il coach di corsa personale di '+((P&&P.name)||'un runner amatoriale')+'. Rispondi sempre in italiano, in modo diretto e concreto, basandoti sui numeri forniti (lap, passo, FC, cadenza, GCT, RPE) e non su consigli generici. Se un dato manca, dillo invece di inventarlo. Usa il formato numerico italiano (virgola decimale, punto per le migliaia) e il passo nel formato m:ss/km. Non sei un medico: per dolori o sintomi consiglia di sentire un professionista. Se tra i dati compaiono vento forte (oltre 20 km/h), caldo o umidità elevata, tienine conto esplicitamente nella lettura di passo, FC e RPE.';
   if(P){
     s+='\n\nPROFILO: ';
     s+=[P.age?'età '+P.age:'',P.fcMax?'FC max '+P.fcMax+' bpm':'',P.fcRest?'FC riposo '+P.fcRest+' bpm':'',P.pb5?'PB 5 km '+P.pb5:'',P.pb10?'PB 10 km '+P.pb10:'',P.goal5?'obiettivo 5 km '+P.goal5:'',P.goal10?'obiettivo 10 km '+P.goal10:'',P.freq?P.freq+' uscite/sett':'',P.sleep?P.sleep+' h sonno':'',P.notes?'note: '+P.notes:''].filter(Boolean).join(' | ');
@@ -1865,11 +1873,15 @@ function renderChat(){
     el.innerHTML='<div class="empty" style="padding:20px"><p style="font-size:13px;margin-bottom:8px">'+(gemOn()?'Chiedi al coach: conosce profilo, ultimi allenamenti e prossime sedute del piano.':'Il coach in-app usa Gemini: imposta la chiave in Profilo → Coach AI. Senza chiave le domande si copiano e si aprono nella chat Claude.')+'</p></div>';
     return;
   }
-  el.innerHTML=chatH.map(function(m){
-    var u=m.role==='user';
-    return '<div class="msg'+(u?' user':'')+'"><div class="mr">'+(u?'Tu':'Coach')+'</div><div class="mt">'+(u?esc(m.label||m.text):mdLite(m.text))+'</div></div>';
+  var h=chatH.map(function(m,i){
+    var u=m.role==='user',btn='';
+    if(!u&&m.text!=='...'&&!/^⚠/.test(m.text)){
+      btn=m.saved?'<div style="font-size:11px;color:var(--grn);margin-top:4px">Salvata in '+esc(m.saved)+' ✓</div>':'<button class="btn" style="margin-top:6px;padding:3px 10px;font-size:11px" onclick="chatSave('+i+')"><i class="ti ti-bookmark"></i> Salva nota</button>';
+    }
+    return '<div class="msg'+(u?' user':'')+'"><div class="mr">'+(u?'Tu':'Coach')+'</div><div class="mt">'+(u?esc(m.label||m.text):mdLite(m.text))+'</div>'+btn+'</div>';
   }).join('');
-  el.scrollTop=el.scrollHeight;
+  if(chatH.length>=2&&!_chatBusy)h+='<div style="display:flex;gap:8px;margin-top:10px"><button class="btn bp" style="flex:1" onclick="chatSaveAll()"><i class="ti ti-bookmark"></i> Salva conversazione</button><button class="btn" onclick="chatNew()">Nuova</button></div>';
+  el.innerHTML=h;el.scrollTop=el.scrollHeight;
 }
 function askQ(q){
   if(!gemOn()){copyAndOpenLegacy(q);return;}
@@ -1931,6 +1943,7 @@ async function coachModal(txt,opts){
     };
     box.querySelector('#cai-chat').onclick=function(){
       chatH=[{role:'user',text:txt,label:'📎 '+String(txt).split('\n')[0].slice(0,80)},{role:'model',text:ans}];
+      chatCtx.wid=opts.wid||null;
       modal.remove();renderChat();
       var nb=document.querySelector('[onclick^="goTab(\'chat\'"]');goTab('chat',nb);
     };
@@ -1938,7 +1951,7 @@ async function coachModal(txt,opts){
     if(sv)sv.onclick=function(){
       var w=W.find(function(x){return x.id===opts.wid;});if(!w)return;
       if(!w.coachNotes)w.coachNotes=[];
-      w.coachNotes.unshift({date:new Date().toLocaleDateString('it-IT')+' '+new Date().toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}),text:ans});
+      w.coachNotes.unshift({date:new Date().toLocaleDateString('it-IT')+' '+new Date().toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}),text:plainMd(ans)});
       LS.set('tw',W);modal.remove();
       if(document.getElementById('dpanel').style.display!=='none')openD(opts.wid);
       openCoachNotes(opts.wid);
@@ -2128,10 +2141,11 @@ function icuImport(n){
     cadence:a.average_cadence?Math.round(icuCad(a.average_cadence)):(ag&&ag.cad?ag.cad:null),
     stride:ag?ag.stride:null,osc:ag?ag.osc:null,gct:ag?ag.gct:null,shoe:sh,rpe:rp,
     ascent:a.total_elevation_gain?Math.round(a.total_elevation_gain):(ag&&ag.asc>0?Math.round(ag.asc):null),descent:null,
-    notes:'',windNote:null,laps:laps,source:laps.length?'garmin':'manual',via:'intervals',icuId:a.id,meteo:null,meteoNotes:null};
+    notes:'',windNote:null,laps:laps,source:laps.length?'garmin':'manual',via:'intervals',icuId:a.id,startTime:String(a.start_date_local||'').slice(11,16)||null,meteo:null,meteoNotes:null};
   W.unshift(w);addKm(sh,w.dist);LS.set('tw',W);
   var pk=gi('icu-pl-'+n);if(pk)applyPlanLink(w.id,pk);
   renderStats();checkAchievements();renderIcu();
+  wxBackfill();
 }
 
 
@@ -2218,6 +2232,152 @@ function recoverySummary(){
   add('FC a riposo media',c.m.restingHR,function(v){return itn(v,0)+' bpm';});
   add('sonno medio',c.m.sleepSecs,function(v){return wlHm(v)+' h';});
   return parts.length?'RECUPERO (medie ultimi 7 giorni rispetto alla base personale, valori indicativi): '+parts.join('; ')+'.':'';
+}
+
+// ── CHAT: salvataggio di risposte e conversazioni come note dell'allenamento ──
+var chatCtx={wid:null};
+function plainMd(t){return String(t).replace(/\*\*(.+?)\*\*/g,'$1').replace(/^#{1,4}\s*/gm,'').replace(/^\s*[\*\-]\s+/gm,'• ');}
+function chatNoteText(from,to){
+  var out=[];
+  for(var i=from;i<=to;i++){
+    var m=chatH[i];if(!m||m.text==='...'||/^⚠/.test(m.text))continue;
+    out.push((m.role==='user'?'Tu: ':'Coach: ')+(m.role==='user'?(m.label||m.text):m.text));
+  }
+  return out.join('\n\n');
+}
+function saveCoachNoteTo(wid,text){
+  var w=W.find(function(x){return x.id===wid;});if(!w)return null;
+  if(!w.coachNotes)w.coachNotes=[];
+  w.coachNotes.unshift({date:new Date().toLocaleDateString('it-IT')+' '+new Date().toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}),text:plainMd(text)});
+  LS.set('tw',W);
+  return w.date+' · '+(w.name||w.type);
+}
+function chatPickTarget(cb){
+  if(chatCtx.wid&&W.some(function(w){return w.id===chatCtx.wid;})){cb(chatCtx.wid);return;}
+  var ex=document.getElementById('chat-pick-modal');if(ex)ex.remove();
+  var modal=document.createElement('div');modal.id='chat-pick-modal';
+  modal.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  var box=document.createElement('div');
+  box.style.cssText='background:var(--bg);border-radius:var(--r2);padding:16px;max-width:480px;width:100%;max-height:80vh;display:flex;flex-direction:column';
+  box.innerHTML='<p style="font-size:14px;font-weight:500;margin-bottom:8px">Salva in quale allenamento?</p><div id="chat-pick-list" style="overflow-y:auto;flex:1"></div><button class="btn bw" id="chat-pick-close" style="margin-top:8px">Annulla</button>';
+  modal.appendChild(box);document.body.appendChild(modal);
+  modal.addEventListener('click',function(e){if(e.target===modal)modal.remove();});
+  box.querySelector('#chat-pick-close').onclick=function(){modal.remove();};
+  var list=box.querySelector('#chat-pick-list');
+  W.slice().sort(function(a,b){return String(b.date).localeCompare(String(a.date));}).slice(0,15).forEach(function(w){
+    var b=document.createElement('button');b.className='btn bw';b.style.cssText='text-align:left;margin-bottom:6px';
+    b.textContent=w.date+' · '+(w.name||w.type)+' · '+itn(parseFloat(w.dist)||0,2)+' km';
+    b.onclick=function(){chatCtx.wid=w.id;modal.remove();cb(w.id);};
+    list.appendChild(b);
+  });
+  if(!W.length)list.innerHTML='<p style="font-size:12px;color:var(--tx3)">Nessun allenamento nel log.</p>';
+}
+function chatSave(i){
+  var from=(i>0&&chatH[i-1].role==='user')?i-1:i;
+  chatPickTarget(function(wid){
+    var lab=saveCoachNoteTo(wid,chatNoteText(from,i));if(!lab)return;
+    for(var k=from;k<=i;k++)chatH[k].saved=lab;
+    renderChat();
+  });
+}
+function chatSaveAll(){
+  chatPickTarget(function(wid){
+    var lab=saveCoachNoteTo(wid,chatNoteText(0,chatH.length-1));if(!lab)return;
+    chatH.forEach(function(m){m.saved=lab;});
+    renderChat();
+  });
+}
+function chatNew(){
+  var unsaved=chatH.some(function(m){return m.role==='model'&&!m.saved&&m.text!=='...';});
+  if(chatH.length&&unsaved&&!confirm('La conversazione non è stata salvata. Iniziarne una nuova?'))return;
+  chatH=[];chatCtx.wid=null;renderChat();
+}
+
+// ── METEO: testo unificato per l'analisi + recupero automatico (Open-Meteo) ──
+var WX_ASK=" Considera sempre le condizioni meteo riportate: se il vento è forte (oltre 20 km/h) o c'è caldo/umidità alta, valuta l'effetto lap per lap su passo, FC e RPE (tratti controvento e a favore) prima di attribuire cali di ritmo o derive cardiache a forma o tecnica.";
+function wxNum(v){return String(v).replace('.',',');}
+function wxText(w){
+  var p=[],m=w.meteo;
+  if(m&&m.temp!=null){
+    var t=wxNum(m.temp)+' °C'+(m.hum!=null?', umidità '+m.hum+'%':'')+', vento '+m.wind+' km/h'+(m.dir?' da '+m.dir:'');
+    if(m.gusts&&m.gusts>m.wind)t+=' con raffiche fino a '+m.gusts+' km/h';
+    if(m.approx)t+=' (stima sulla fascia oraria abituale)';
+    p.push(t);
+  }
+  var notes=[];
+  [w.windNote,w.meteoNotes].forEach(function(x){x=String(x||'').trim();if(x&&notes.indexOf(x)<0)notes.push(x);});
+  if(notes.length)p.push('vento/condizioni riferiti dall\'atleta: '+notes.join('; '));
+  return p.join(' | ');
+}
+function wxLoc(){
+  var l=LS.get('tl_wx_loc');
+  return (l&&isFinite(l.lat)&&isFinite(l.lon))?l:{lat:40.35,lon:18.17};
+}
+function fillWx(){
+  var l=LS.get('tl_wx_loc');
+  var a=document.getElementById('wxlat'),b=document.getElementById('wxlon');
+  if(a&&b&&l){a.value=wxNum(l.lat);b.value=wxNum(l.lon);}
+}
+function wxParse(v){return parseFloat(String(v).trim().replace(',','.'));}
+function saveWxLoc(lat,lon){
+  LS.set('tl_wx_loc',{lat:lat,lon:lon});
+  // le località cambiate rendono vecchi i meteo automatici: si rigenerano
+  W.forEach(function(w){if(w.meteo&&w.meteo.auto){w.meteo=null;w.wxTried=0;}});
+  LS.set('tw',W);wxBackfill();
+}
+function saveWx(){
+  var lat=wxParse(gi('wxlat')),lon=wxParse(gi('wxlon'));
+  if(!(lat>=-90&&lat<=90)||!(lon>=-180&&lon<=180)){smsg('wxmsg','err','Coordinate non valide.');return;}
+  saveWxLoc(lat,lon);smsg('wxmsg','ok','Località salvata. Aggiorno il meteo delle corse.');
+}
+function geoWx(){
+  if(!navigator.geolocation){smsg('wxmsg','err','Posizione non disponibile su questo dispositivo.');return;}
+  navigator.geolocation.getCurrentPosition(function(pos){
+    var lat=Math.round(pos.coords.latitude*1000)/1000,lon=Math.round(pos.coords.longitude*1000)/1000;
+    document.getElementById('wxlat').value=wxNum(lat);document.getElementById('wxlon').value=wxNum(lon);
+    saveWxLoc(lat,lon);smsg('wxmsg','ok','Posizione salvata. Aggiorno il meteo delle corse.');
+  },function(){smsg('wxmsg','err','Permesso di posizione negato.');},{timeout:10000});
+}
+function wxWindow(w){
+  if(w.startTime&&/^\d{1,2}:\d{2}$/.test(w.startTime)){
+    var p=w.startTime.split(':'),st=parseInt(p[0],10)+parseInt(p[1],10)/60,en=st+(w.timeSecs||3600)/3600;
+    return {h0:Math.floor(st),h1:Math.min(23,Math.floor(en)),exact:true};
+  }
+  var map={'mattina presto':[6,8],'mattina':[8,11],'sera':[18,21]},r=map[P&&P.timeband]||[7,20];
+  return {h0:r[0],h1:r[1],exact:false};
+}
+function wxCompass(deg){var n=['N','NE','E','SE','S','SO','O','NO'];return n[Math.round(((deg%360)+360)%360/45)%8];}
+var _wxBusy=false;
+async function wxBackfill(){
+  if(_wxBusy)return;
+  var today=td(),min=wlShift(today,-90);
+  var pend=W.filter(function(w){return !w.meteo&&w.date>=min&&w.date<=today&&!(w.wxTried&&w.wxTried>Date.now()-864e5);});
+  if(!pend.length)return;
+  _wxBusy=true;
+  try{
+    var l=wxLoc();
+    var r=await fetch('https://api.open-meteo.com/v1/forecast?latitude='+l.lat+'&longitude='+l.lon+'&hourly=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,wind_gusts_10m,wind_direction_10m&wind_speed_unit=kmh&timezone=auto&past_days=92&forecast_days=1');
+    var d=await r.json(),H=d&&d.hourly;
+    if(!H||!H.time)throw new Error('risposta meteo vuota');
+    var changed=false;
+    pend.forEach(function(w){
+      var win=wxWindow(w),idx=[];
+      for(var h=win.h0;h<=win.h1;h++){var i=H.time.indexOf(w.date+'T'+(h<10?'0':'')+h+':00');if(i>=0&&H.temperature_2m[i]!=null)idx.push(i);}
+      if(!idx.length){w.wxTried=Date.now();changed=true;return;}
+      function avg(a){return a.reduce(function(x,y){return x+y;},0)/a.length;}
+      var sx=0,sy=0;
+      idx.forEach(function(i){var v=H.wind_speed_10m[i]||0,a=(H.wind_direction_10m[i]||0)*Math.PI/180;sx+=v*Math.sin(a);sy+=v*Math.cos(a);});
+      var dir=(Math.abs(sx)+Math.abs(sy)>0.5)?wxCompass(Math.atan2(sx,sy)*180/Math.PI):'';
+      w.meteo={temp:Math.round(avg(idx.map(function(i){return H.temperature_2m[i];}))*10)/10,
+        hum:Math.round(avg(idx.map(function(i){return H.relative_humidity_2m[i]||0;}))),
+        wind:Math.round(avg(idx.map(function(i){return H.wind_speed_10m[i]||0;}))),
+        gusts:Math.round(Math.max.apply(null,idx.map(function(i){return H.wind_gusts_10m[i]||0;}))),
+        code:H.weather_code[idx[0]],dir:dir,auto:true,approx:!win.exact};
+      changed=true;
+    });
+    if(changed)LS.set('tw',W);
+  }catch(e){console.error('[meteo]',e);}
+  _wxBusy=false;
 }
 const PROJECT_URL = "https://claude.ai/project/019ea634-1b85-774f-bc76-e62728552cc7";
 
