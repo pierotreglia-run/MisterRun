@@ -172,7 +172,7 @@ textarea{resize:vertical;min-height:56px}
 <option value="Recupero">Recupero</option>
 <option value="Easy">Easy</option>
 <option value="Lungo">Lungo</option>
-<option value="Qualità">Qualità</option>
+<option value="Qualità">Qualità</option><option value="Progressivo">Progressivo</option>
 <option value="Gara">Gara</option></select></div></div>
     <div class="fg"><label>Nome sessione</label><input id="fnm" placeholder="es. 5x1000 Acaya"></div>
     <div class="g2"><div class="fg"><label>Distanza (km) *</label><input type="number" id="fdi" step="0.1"></div><div class="fg"><label>Tempo (mm:ss)</label><input id="ftm" placeholder="45:30"></div></div>
@@ -199,7 +199,7 @@ textarea{resize:vertical;min-height:56px}
 <option value="Recupero">Recupero</option>
 <option value="Easy">Easy</option>
 <option value="Lungo">Lungo</option>
-<option value="Qualità">Qualità</option>
+<option value="Qualità">Qualità</option><option value="Progressivo">Progressivo</option>
 <option value="Gara">Gara</option></select></div></div>
       <div class="fg"><label>Nome sessione *</label><input id="cnm" placeholder="es. 5x1000 Punta Prosciutto"></div>
       <div class="fg"><label>Scarpe *</label><select id="csh"><option value="">- seleziona -</option></select></div>
@@ -229,7 +229,7 @@ textarea{resize:vertical;min-height:56px}
 <option value="Recupero">Recupero</option>
 <option value="Easy">Easy</option>
 <option value="Lungo">Lungo</option>
-<option value="Qualità">Qualità</option>
+<option value="Qualità">Qualità</option><option value="Progressivo">Progressivo</option>
 <option value="Gara">Gara</option></select></div>
       <div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn" style="font-size:11px" onclick="startCmp()"><i class="ti ti-arrows-diff"></i> Confronta 2</button></div>
       <div id="hlist"><p class="empty">Nessun allenamento</p></div>
@@ -271,7 +271,7 @@ textarea{resize:vertical;min-height:56px}
     <div class="g2"><div class="fg"><label>Data *</label><input type="date" id="ed-date"></div><div class="fg"><label>Tipo *</label><select id="ed-type"><option value="Recupero">Recupero</option>
 <option value="Easy">Easy</option>
 <option value="Lungo">Lungo</option>
-<option value="Qualità">Qualità</option>
+<option value="Qualità">Qualità</option><option value="Progressivo">Progressivo</option>
 <option value="Gara">Gara</option></select></div></div>
     <div class="fg"><label>Nome sessione</label><input id="ed-name"></div>
     <div class="g2"><div class="fg"><label>Distanza (km) *</label><input type="number" id="ed-dist" step="0.1"></div><div class="fg"><label>Tempo (mm:ss)</label><input id="ed-time" placeholder="45:30"></div></div>
@@ -303,6 +303,7 @@ textarea{resize:vertical;min-height:56px}
   <div class="m2"><div class="met"><div class="ml">Ritmo medio</div><div class="mv" id="spc">-</div></div><div class="met"><div class="ml">Sessioni qualita</div><div class="mv" id="sq">-</div></div></div>
   <div class="card"><p class="st">Obiettivi</p><div id="goals"></div></div>
   <div class="card" id="recovery-card"><p class="st">Recupero</p><div id="recovery-body"></div></div>
+  <div class="card" id="pred-card"><p class="st">Stima 10 km</p><div id="pred-body"></div></div>
   <div class="card"><p class="st">Volume ultime 4 settimane</p><div id="wchart" style="display:flex;align-items:flex-end;gap:5px;height:70px;margin-top:6px"></div><div id="wlabels" style="display:flex;gap:5px;margin-top:3px"></div></div>
   <div class="card" id="spark-km-card">
     <p class="st">Km settimanali</p>
@@ -365,7 +366,7 @@ textarea{resize:vertical;min-height:56px}
 <option value="Recupero">Recupero</option>
 <option value="Easy">Easy</option>
 <option value="Lungo">Lungo</option>
-<option value="Qualità">Qualità</option>
+<option value="Qualità">Qualità</option><option value="Progressivo">Progressivo</option>
 <option value="Gara">Gara</option></select>
   </div>
   <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
@@ -472,7 +473,7 @@ function boot(){
   initTheme();
   checkGoalsRequired();
   // Migrate old workout types to new simplified categories
-  var typeMap={'Easy lungo':'Lungo','Intervalli':'Qualità','Progressivo':'Qualità',
+  var typeMap={'Easy lungo':'Lungo','Intervalli':'Qualità',
     'Fartlek':'Qualità','Soglia':'Qualità','Qualita':'Qualità'};
   var migrated=false;
   W.forEach(function(w){
@@ -501,6 +502,8 @@ function boot(){
   safeCall(renderTgts,'renderTgts');
   safeCall(fetchMet,'fetchMet');
   safeCall(wxBackfill,'wxBackfill');
+  safeCall(icuFixPhases,'icuFixPhases');
+  safeCall(function(){icuPredRefresh(false);},'icuPred');
   safeCall(renderDashboard,'renderDashboard');
   safeCall(checkBackupReminder,'checkBackupReminder');
   safeCall(checkWeeklySummary,'checkWeeklySummary');
@@ -1354,6 +1357,7 @@ function renderStats(){
   renderSparklines();
   renderYearComparison();
   try{renderRecovery();}catch(e){console.error('[recupero]',e);}
+  try{renderPredCard();}catch(e){console.error('[stima]',e);}
   checkShoeWarnings();
 }
 function expJSON(){
@@ -1577,14 +1581,14 @@ function evalTgt(){
     var wSun=new Date(wMon);wSun.setDate(wMon.getDate()+6);wSun.setHours(23,59,59,999);
     var wW=W.filter(function(w){var d=new Date(w.date);return d>=wMon&&d<=wSun;});
     var wKm=wW.reduce(function(a,w){return a+(w.dist||0);},0);
-    var wQual=wW.filter(function(w){return ['Qualità','Gara'].indexOf(w.type)>=0;}).length;
+    var wQual=wW.filter(function(w){return ['Qualità','Progressivo','Gara'].indexOf(w.type)>=0;}).length;
     var wLabel=(wMon.getDate()+'/'+(wMon.getMonth()+1)).padEnd(6)+' – '+(wSun.getDate()+'/'+(wSun.getMonth()+1));
     weeklyTxt+='  '+wLabel+': '+wKm.toFixed(1).padStart(5)+'km | '+wW.length+' usc. | '+wQual+' qualita'+NL;
   }
   weeklyTxt+='╚══════════════════════════════════════════╝';
 
   // ── SESSIONI QUALITA (dettaglio completo per fase) ────────────────────────
-  var qualTypes=['Qualità','Gara'];
+  var qualTypes=['Qualità','Progressivo','Gara'];
   var qualW=W.filter(function(w){return qualTypes.indexOf(w.type)>=0;})
              .sort(function(a,b){return b.date.localeCompare(a.date);})
              .slice(0,8);
@@ -1807,7 +1811,7 @@ function coachData(){
   ws.forEach(function(w){
     t+=w.date+' | '+(w.name||w.type)+' ['+w.type+'] | '+w.dist+' km | '+pcStr(w.dist,w.timeSecs)+' | RPE '+(w.rpe||'?')+(w.hr?' | FC '+w.hr+' bpm':'')+(wxText(w)?' | meteo: '+wxText(w):'')+(w.notes?' | '+w.notes:'')+NL;
   });
-  var q=ws.filter(function(w){return w.laps&&w.laps.length&&['Qualità','Gara'].indexOf(w.type)>=0;}).slice(0,3);
+  var q=ws.filter(function(w){return w.laps&&w.laps.length&&['Qualità','Progressivo','Gara'].indexOf(w.type)>=0;}).slice(0,3);
   if(q.length){
     t+=NL+'LAP DELLE ULTIME SEDUTE DI QUALITÀ:'+NL;
     q.forEach(function(w){
@@ -2064,9 +2068,13 @@ function icuDup(a){
 }
 function icuGuessType(a,iv){
   var nm=String(a.name||'').toLowerCase(),km=(a.distance||0)/1000;
-  var work=(iv||[]).filter(function(x){return String(x.type||'').toUpperCase()==='WORK';}).length;
+  var up=function(x){return String(x.type||'').toUpperCase();};
+  var work=(iv||[]).filter(function(x){return up(x)==='WORK';}).length;
+  var rec=(iv||[]).filter(function(x){return up(x)==='RECOVERY';}).length;
   if(/gara|race/.test(nm))return 'Gara';
-  if(work>=3||/ripet|\dx\d|\d\s?x\s?\d|qualit|fartlek|soglia|progressiv|tempo run|interval/.test(nm))return 'Qualità';
+  if(/progress/.test(nm))return 'Progressivo';
+  if((work>=3&&rec>=1)||/ripet|\dx\d|\d\s?x\s?\d|qualit|fartlek|soglia|tempo run|interval/.test(nm))return 'Qualità';
+  if(icuIsProgressive(iv))return 'Progressivo';
   if(km>=16||/lungo/.test(nm))return 'Lungo';
   if(/recup/.test(nm))return 'Recupero';
   return 'Easy';
@@ -2097,7 +2105,7 @@ function renderIcu(){
   var shoes=SH.filter(function(s){return !s.arch;});
   var lastShoe=W.length?W[0].shoe:'';
   var planOpts=(document.getElementById('cplan-link')||{}).innerHTML||'<option value="">- nessun collegamento -</option>';
-  var tipi=['Recupero','Easy','Lungo','Qualità','Gara'];
+  var tipi=['Recupero','Easy','Lungo','Qualità','Progressivo','Gara'];
   var html='';
   _icuActs.forEach(function(a,n){
     var dup=icuDup(a),date=String(a.start_date_local||'').slice(0,10),km=(a.distance||0)/1000;
@@ -2138,7 +2146,9 @@ function icuImport(n){
   var eb=document.getElementById('icu-err-'+n);
   if(errs.length){if(eb)eb.innerHTML='<div class="err">Obbligatori: '+errs.join(', ')+'</div>';return;}
   if(icuDup(a)==='simile'&&!confirm('Esiste già un allenamento simile nello stesso giorno. Importare comunque?'))return;
-  var laps=icuLaps(a._iv),ag=laps.length?icuAgg(laps):null;
+  var laps=icuLaps(a._iv);
+  if(tp==='Qualità')classifyQualityLaps(laps);
+  var ag=laps.length?icuAgg(laps):null;
   var date=String(a.start_date_local||'').slice(0,10);
   var w={id:Date.now()+n,date:date,type:tp,name:nm,
     dist:a.distance?Math.round(a.distance/10)/100:(ag?Math.round(ag.dist*100)/100:0),
@@ -2152,7 +2162,7 @@ function icuImport(n){
   W.unshift(w);addKm(sh,w.dist);LS.set('tw',W);
   var pk=gi('icu-pl-'+n);if(pk)applyPlanLink(w.id,pk);
   renderStats();checkAchievements();renderIcu();
-  wxBackfill();
+  wxBackfill();icuPredRefresh(true);
 }
 
 
@@ -2462,6 +2472,146 @@ async function wxBackfill(){
     if(changed)LS.set('tw',W);
   }catch(e){console.error('[meteo]',e);}
   _wxBusy=false;
+}
+
+// ── QUALITÀ: passo dei soli tratti veloci ────────────────────────────────────
+function lapSecs(l){var t=tS(l.tempo);if(t>0)return t;var p=tS(l.passo),d=parseFloat(l.dist);return(p>0&&d>0)?p*d:0;}
+function lapPaceSecs(l){var d=parseFloat(l.dist),t=lapSecs(l);return(d>0&&t>0)?t/d:0;}
+function medianOf(a){var b=a.slice().sort(function(x,y){return x-y;}),n=b.length;if(!n)return 0;return n%2?b[(n-1)/2]:(b[n/2-1]+b[n/2])/2;}
+// Se le fasi sono esplicite (Riscaldamento/Defaticamento) si fidano; altrimenti i tratti veloci sono i lap
+// da almeno 400 m entro il 5% dal passo di riferimento (mediana del 40% più veloce).
+function workLaps(w){
+  var all=(w.laps||[]).filter(function(l){return parseFloat(l.dist)>0&&lapSecs(l)>0;});
+  var explicit=all.some(function(l){return l.phase==='Riscaldamento'||l.phase==='Defaticamento';});
+  var cand=explicit?all.filter(function(l){return l.phase==='Corsa'||l.phase==='Ripetuta';}):all;
+  cand=cand.filter(function(l){return parseFloat(l.dist)>=0.4;});
+  if(!explicit&&cand.length>=2){
+    var ps=cand.map(lapPaceSecs).sort(function(a,b){return a-b;});
+    var R=medianOf(ps.slice(0,Math.max(1,Math.ceil(ps.length*0.4))));
+    cand=cand.filter(function(l){return lapPaceSecs(l)<=R*1.05;});
+  }
+  return {all:all,work:cand};
+}
+function qualityPace(w){
+  var r=workLaps(w),wl=r.work;
+  if(!wl.length)return null;
+  var dist=wl.reduce(function(a,l){return a+parseFloat(l.dist);},0);
+  var secs=wl.reduce(function(a,l){return a+lapSecs(l);},0);
+  if(wl.length<2&&dist<3)return null;
+  var i0=r.all.indexOf(wl[0]),i1=r.all.indexOf(wl[wl.length-1]);
+  var interval=r.all.slice(i0,i1+1).some(function(l){return wl.indexOf(l)<0;});
+  return {pace:secs/dist,dist:dist,n:wl.length,interval:interval,how:'lap veloci'};
+}
+// progressivo: sforzo = ultimo 30% della distanza (almeno 2 km), solo se è davvero più veloce della media
+function progressiveEffort(w){
+  var laps=(w.laps||[]).filter(function(l){return parseFloat(l.dist)>0&&lapSecs(l)>0&&l.phase!=='Riscaldamento'&&l.phase!=='Defaticamento';});
+  if(laps.length<3)return null;
+  var total=laps.reduce(function(a,l){return a+parseFloat(l.dist);},0),tsec=laps.reduce(function(a,l){return a+lapSecs(l);},0);
+  var target=Math.max(2,total*0.3),acc=0,secs=0;
+  for(var i=laps.length-1;i>=0&&acc<target;i--){acc+=parseFloat(laps[i].dist);secs+=lapSecs(laps[i]);}
+  if(acc<1.5)return null;
+  var seg=secs/acc,avg=tsec/total;
+  if(seg>avg*0.95)return null;
+  return {pace:seg,dist:acc,avg:avg};
+}
+// Intervals tagga come "WORK" anche riscaldamento e defaticamento: le fasi si ricostruiscono dal passo
+function classifyQualityLaps(laps){
+  if(!laps||laps.length<4)return 0;
+  var cand=laps.filter(function(l){return parseFloat(l.dist)>=0.4&&lapPaceSecs(l)>0;});
+  if(cand.length<2)return 0;
+  var ps=cand.map(lapPaceSecs).sort(function(a,b){return a-b;});
+  var R=medianOf(ps.slice(0,Math.max(1,Math.ceil(ps.length*0.4))));
+  function isWork(l){return parseFloat(l.dist)>=0.4&&lapPaceSecs(l)>0&&lapPaceSecs(l)<=R*1.05;}
+  var first=-1,last=-1;
+  laps.forEach(function(l,i){if(isWork(l)){if(first<0)first=i;last=i;}});
+  if(first<0)return 0;
+  var ch=0;
+  laps.forEach(function(l,i){
+    var ph=isWork(l)?'Corsa':(i<first?'Riscaldamento':(i>last?'Defaticamento':'Recupero'));
+    if(l.phase!==ph){l.phase=ph;ch++;}
+  });
+  return ch;
+}
+function icuFixPhases(){
+  if(LS.get('tl_fix_phase_1'))return;
+  var n=0;
+  W.forEach(function(w){
+    if(w.via!=='intervals'||w.type!=='Qualità'||!w.laps||w.laps.length<4)return;
+    if(w.laps.some(function(l){return l.phase==='Riscaldamento'||l.phase==='Defaticamento';}))return;
+    if(classifyQualityLaps(w.laps)>0)n++;
+  });
+  if(n)LS.set('tw',W);
+  LS.set('tl_fix_phase_1',true);
+}
+function icuIsProgressive(iv){
+  var big=icuLaps(iv).filter(function(l){return parseFloat(l.dist)>=0.5&&lapPaceSecs(l)>0;});
+  if(big.length<4)return false;
+  var k=Math.floor(big.length/3);
+  function grp(a){var d=a.reduce(function(x,l){return x+parseFloat(l.dist);},0),t=a.reduce(function(x,l){return x+lapSecs(l);},0);return t/d;}
+  if(grp(big.slice(-k))>grp(big.slice(0,k))*0.92)return false;
+  var up=0;for(var i=1;i<big.length;i++){if(lapPaceSecs(big[i])<=lapPaceSecs(big[i-1])+3)up++;}
+  return up/(big.length-1)>=0.7;
+}
+
+// ── STIMA 10 KM: modello di velocità critica e migliori sforzi di Intervals.icu ──
+var ICU_PRED_KEY='tl_icu_pred';
+async function icuPredRefresh(force){
+  if(!icuOn())return;
+  var c=LS.get(ICU_PRED_KEY);
+  if(!force&&c&&c.ts&&Date.now()-c.ts<12*3600*1000)return;
+  try{
+    var id=encodeURIComponent(icuCfg().id||'0');
+    var d=await icuGet('/athlete/'+id+'/pace-curves?type=Run&curves=84d');
+    var cv=d&&d.list&&d.list[0];
+    if(!cv||!cv.distance||!cv.values)throw new Error('curva vuota');
+    var best={};
+    [1000,1500,3000,5000,10000].forEach(function(dm){
+      var i=cv.distance.findIndex(function(x){return Math.abs(x-dm)<1;});
+      if(i>=0&&cv.values[i]>0)best[dm]={secs:cv.values[i],act:cv.activity_id?cv.activity_id[i]:null};
+    });
+    var out={ts:Date.now(),best:best};
+    var m=(cv.paceModels||[]).filter(function(x){return x&&x.type==='CS';})[0];
+    if(m&&m.criticalSpeed>0&&m.dPrime>0&&m.r2>=0.98){out.cs=m.criticalSpeed;out.dp=m.dPrime;out.r2=m.r2;}
+    LS.set(ICU_PRED_KEY,out);
+    try{renderDashboard();}catch(e){}
+    try{renderPredCard();}catch(e){}
+  }catch(e){console.error('[stima intervals]',e);}
+}
+function icuModelTime(dist){
+  var c=LS.get(ICU_PRED_KEY);
+  if(!c||!(c.cs>0)||!(c.dp>0)||dist<=c.dp)return null;
+  return (dist-c.dp)/c.cs;
+}
+function calcRacePrediction(){
+  var ses=calcRacePredictionSessions();
+  var c=LS.get(ICU_PRED_KEY),t=icuModelTime(10000);
+  if(!t||!c||!c.ts||Date.now()-c.ts>14*864e5)return ses;
+  var b10=c.best&&c.best['10000']?c.best['10000'].secs:null;
+  var fast=Math.min(t*0.995,b10||Infinity),slow=t*1.015;
+  return {pace:fT(Math.round(t/10)),timeFast:fT(Math.round(fast)),timeSlow:fT(Math.round(slow)),
+    sessions:ses?ses.sessions:0,hasRace:ses?ses.hasRace:false,src:'intervals',
+    best10:b10?fT(Math.round(b10)):null,sessionEst:ses?ses.timeFast+'–'+ses.timeSlow:null};
+}
+function renderPredCard(){
+  var box=document.getElementById('pred-body');if(!box)return;
+  var c=LS.get(ICU_PRED_KEY),ses=calcRacePredictionSessions(),t=icuModelTime(10000);
+  var h='';
+  function row(label,val,sub){return '<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;font-size:12px;border-bottom:0.5px solid var(--bd)"><span style="color:var(--tx2)">'+label+(sub?'<br><span style="font-size:10px;color:var(--tx3)">'+sub+'</span>':'')+'</span><b style="font-weight:500;white-space:nowrap">'+val+'</b></div>';}
+  if(c&&t){
+    h+=row('Modello Intervals',fT(Math.round(t)),'velocità critica '+fT(Math.round(1000/c.cs))+'/km · D′ '+Math.round(c.dp)+' m');
+    if(c.best&&c.best['10000'])h+=row('Miglior 10 km misurato',fT(Math.round(c.best['10000'].secs)),'ultimi 84 giorni');
+  }
+  if(ses)h+=row('Stima dalle sedute',ses.timeFast+'–'+ses.timeSlow,'passo dei tratti veloci, '+ses.sessions+' elementi');
+  if(c&&c.best){
+    var ds=[1000,1500,3000,5000,10000].filter(function(d){return c.best[d];});
+    if(ds.length){
+      h+='<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:10px"><tr style="color:var(--tx3)"><th style="text-align:left;font-weight:400">Migliori sforzi</th><th style="text-align:right;font-weight:400">Tempo</th><th style="text-align:right;font-weight:400">Passo</th></tr>'+
+        ds.map(function(d){var sc=c.best[d].secs;return '<tr><td style="padding:3px 0">'+itn(d,0)+' m</td><td style="text-align:right">'+fT(Math.round(sc))+'</td><td style="text-align:right">'+fT(Math.round(sc/(d/1000)))+'/km</td></tr>';}).join('')+'</table>';
+    }
+  }
+  if(!h)h='<p style="font-size:12px;color:var(--tx2)">'+(icuOn()?'Dati in arrivo da Intervals.icu: riapri Stats tra qualche istante.':'Collega Intervals.icu in Profilo per vedere il modello di velocità critica e i migliori sforzi.')+'</p>';
+  else h+='<p style="font-size:10px;color:var(--tx3);margin-top:8px">La stima in Home usa il modello di Intervals; senza quei dati ripiega sulle sedute. Il modello è tarato su sforzi brevi: sui 10 km può risultare prudente.</p>';
+  box.innerHTML=h;
 }
 const PROJECT_URL = "https://claude.ai/project/019ea634-1b85-774f-bc76-e62728552cc7";
 
@@ -2916,7 +3066,7 @@ function checkWeeklySummary(){
   var km=lastWeekW.reduce(function(a,w){return a+(w.dist||0);},0);
   var rpeAvg=lastWeekW.filter(function(w){return w.rpe;});
   var avgRpe=rpeAvg.length?Math.round(rpeAvg.reduce(function(a,w){return a+w.rpe;},0)/rpeAvg.length*10)/10:null;
-  var qualSessions=lastWeekW.filter(function(w){return ['Qualità','Gara'].indexOf(w.type)>=0;});
+  var qualSessions=lastWeekW.filter(function(w){return ['Qualità','Progressivo','Gara'].indexOf(w.type)>=0;});
   // Most used shoe
   var shoeCounts={};lastWeekW.forEach(function(w){if(w.shoe)shoeCounts[w.shoe]=(shoeCounts[w.shoe]||0)+1;});
   var topShoeId=Object.keys(shoeCounts).sort(function(a,b){return shoeCounts[b]-shoeCounts[a];})[0];
@@ -2988,7 +3138,7 @@ function showWeeklySummaryNow(){
   var km=lastWeekW.reduce(function(a,w){return a+(w.dist||0);},0);
   var rpeAvg=lastWeekW.filter(function(w){return w.rpe;});
   var avgRpe=rpeAvg.length?Math.round(rpeAvg.reduce(function(a,w){return a+w.rpe;},0)/rpeAvg.length*10)/10:null;
-  var qual=lastWeekW.filter(function(w){return ['Qualità','Gara'].indexOf(w.type)>=0;}).length;
+  var qual=lastWeekW.filter(function(w){return ['Qualità','Progressivo','Gara'].indexOf(w.type)>=0;}).length;
   var shoeCounts={};lastWeekW.forEach(function(w){if(w.shoe)shoeCounts[w.shoe]=(shoeCounts[w.shoe]||0)+1;});
   var topShoeId=Object.keys(shoeCounts).sort(function(a,b){return shoeCounts[b]-shoeCounts[a];})[0];
   var topShoe=topShoeId?SH.find(function(s){return s.id===topShoeId;}):null;
@@ -3368,7 +3518,7 @@ function buildPlanCoachText(idx,question){
       if(w.notes)txt+=' | "'+w.notes+'"';
       txt+=NL;
       // Add quality lap summary if available
-      if(w.laps&&w.laps.length&&['Qualità','Gara'].indexOf(w.type)>=0){
+      if(w.laps&&w.laps.length&&['Qualità','Progressivo','Gara'].indexOf(w.type)>=0){
         var runLaps=w.laps.filter(function(l){return l.phase==='Corsa'||l.phase==='Ripetuta';});
         if(runLaps.length){
           txt+='    Lap corsa: '+runLaps.map(function(l){return l.dist+'km@'+l.passo+(l.fc?' FC'+l.fc:'')+(l.cadence?' C'+l.cadence:'');}).join(' | ')+NL;
@@ -3402,7 +3552,7 @@ function renderDashboard(){
   var lastWeekW=W.filter(function(w){var d=new Date(w.date);return d>=lastMonday&&d<=lastSunday;});
   var thisKm=thisWeekW.reduce(function(a,w){return a+(w.dist||0);},0);
   var lastKm=lastWeekW.reduce(function(a,w){return a+(w.dist||0);},0);
-  var thisQual=thisWeekW.filter(function(w){return ['Qualità','Gara'].indexOf(w.type)>=0;}).length;
+  var thisQual=thisWeekW.filter(function(w){return ['Qualità','Progressivo','Gara'].indexOf(w.type)>=0;}).length;
   var kmDiff=thisKm-lastKm;
   var kmDiffStr=kmDiff===0?'=':(kmDiff>0?'+':'')+kmDiff.toFixed(1)+'km';
 
@@ -3426,23 +3576,22 @@ function renderDashboard(){
   }
 
   // ── Trend passo qualità ───────────────────────────────────────────────────
-  var qualTypes=['Qualità','Gara'];
-  var qualW=W.filter(function(w){return qualTypes.indexOf(w.type)>=0&&w.laps&&w.laps.length;})
+  // Solo sedute di tipo Qualità, confrontate sul passo dei tratti veloci (senza riscaldamento,
+  // recuperi e defaticamento). Progressivo e Gara hanno strutture diverse e non entrano nel confronto.
+  var qualTypes=['Qualità','Progressivo','Gara'];
+  var qualItems=W.filter(function(w){return w.type==='Qualità'&&w.laps&&w.laps.length;})
              .sort(function(a,b){return b.date.localeCompare(a.date);})
+             .map(function(w){return qualityPace(w);})
+             .filter(function(q){return q&&q.how==='lap veloci';})
              .slice(0,5);
-  var paces=qualW.map(function(w){
-    var runLaps=w.laps.filter(function(l){return l.phase==='Corsa'||l.phase==='Ripetuta';});
-    if(!runLaps.length)return w.timeSecs&&w.dist?w.timeSecs/w.dist:null;
-    var validP=runLaps.filter(function(l){return l.passo&&l.passo!=='-';});
-    if(!validP.length)return null;
-    var avg=validP.reduce(function(a,l){return a+passoToSecs(l.passo);},0)/validP.length;
-    return avg;
-  }).filter(Boolean);
+  var paces=qualItems.map(function(q){return q.pace;});
   var trendIcon='',trendColor='var(--tx3)',trendStr='';
   if(paces.length>=2){
-    var diff=paces[0]-paces[paces.length-1]; // negative = getting faster
-    if(diff<-3){trendIcon='↑';trendColor='#1D9E75';trendStr='In miglioramento';}
-    else if(diff>3){trendIcon='↓';trendColor='#E24B4A';trendStr='In calo';}
+    var prevs=paces.slice(1).sort(function(a,b){return a-b;});
+    var baseP=prevs.length%2?prevs[(prevs.length-1)/2]:(prevs[prevs.length/2-1]+prevs[prevs.length/2])/2;
+    var diff=paces[0]-baseP; // negativo = più veloce della tua media recente
+    if(diff<-4){trendIcon='↑';trendColor='#1D9E75';trendStr='In miglioramento';}
+    else if(diff>4){trendIcon='↓';trendColor='#E24B4A';trendStr='In calo';}
     else{trendIcon='→';trendColor='var(--tx2)';trendStr='Stabile';}
   }
 
@@ -3522,6 +3671,7 @@ function renderDashboard(){
     var out='';
     if(daysLeft>0)out+='<div style="font-size:10px;color:rgba(255,255,255,.65);font-weight:700">'+daysLeft+'gg alla gara</div>';
     if(pred)out+='<div style="font-size:10px;color:rgba(255,255,255,.5);margin-top:3px">Stima 10km: <span style="color:#fff;font-weight:700">'+pred.timeFast+'–'+pred.timeSlow+'</span></div>';
+    if(pred&&pred.src==='intervals')out+='<div style="font-size:10px;color:rgba(255,255,255,.4)">Modello Intervals'+(pred.best10?' · record '+pred.best10:'')+'</div>';
     return out;
   })()+
     '</div></div>'+
@@ -3852,8 +4002,13 @@ function togglePlanAcc(key){
 
 // calcFormaScore rimossa — la card "Forma" in Home ora mostra la sparkline del passo (vedi renderDashboard)
 
-var APP_VERSION='3.3';
-var CHANGELOG=[{v:'3.3',date:'Ottobre 2026',title:'Novità versione 3.3',items:[
+var APP_VERSION='3.4';
+var CHANGELOG=[{v:'3.4',date:'Ottobre 2026',title:'Novità versione 3.4',items:[
+  'Nuova categoria Progressivo — per le uscite che accelerano gradualmente: non contano più come sedute di qualità e non falsano il trend',
+  'Trend della qualità corretto — confronta solo il passo dei tratti veloci (senza riscaldamento, recuperi e defaticamento) delle sedute di tipo Qualità',
+  'Stima dei 10 km più precisa — usa i soli tratti veloci; le progressive pesano la metà e contano solo per la parte finale',
+  'Stima dei 10 km dal modello di Intervals — se hai collegato Intervals.icu, la stima parte dalla tua velocità critica e dai migliori sforzi misurati; in Stats trovi il dettaglio',
+]},{v:'3.3',date:'Ottobre 2026',title:'Novità versione 3.3',items:[
   'Nuova grafica nel tema chiaro — fondo celestino, blu notte e cobalto al posto dell\'arancione; anche le schede da condividere seguono il tema',
   'Coach AI con Gemini — in Profilo → Coach AI inserisci la tua chiave gratuita (aistudio.google.com/apikey): il coach risponde direttamente nell\'app, senza copia e incolla. Per generare le risposte, profilo e allenamenti vengono inviati a Google',
   'Chat con il coach — nella tab Coach fai domande libere e salva risposte o intere conversazioni come note dell\'allenamento',
@@ -3891,6 +4046,8 @@ var CHANGELOG=[{v:'3.3',date:'Ottobre 2026',title:'Novità versione 3.3',items:[
   'Ricalcola riassuntivi — corregge FC media e cadenza sui vecchi import',
 ]}];
 
+// la 3.4 mostra anche le novità della 3.3, per chi non le ha ancora viste
+CHANGELOG[0].items=CHANGELOG[0].items.concat(CHANGELOG[1].items);
 function checkChangelog(){
   if(LS.get('tl_ver')===APP_VERSION)return;
   showChangelog();
@@ -4181,7 +4338,7 @@ function openWorkoutModal(wId){
 }
 
 // ── RACE TIME PREDICTOR ───────────────────────────────────────────────────────
-function calcRacePrediction(){
+function calcRacePredictionSessions(){
   var now=new Date();
   var candidates=[]; // {predicted:secs total 10k, weight:number}
 
@@ -4238,13 +4395,22 @@ function calcRacePrediction(){
 
   // ── 2. Quality sessions — distingue intervalli (rep+recupero) da sforzi continui (medio/tempo) ─
   var qualSessions=W.filter(function(w){
-    return w.type==='Qualità'&&w.timeSecs&&w.dist>=3;
+    return (w.type==='Qualità'||w.type==='Progressivo')&&w.timeSecs&&w.dist>=3;
   }).sort(function(a,b){return b.date.localeCompare(a.date);}).slice(0,8);
   qualSessions.forEach(function(w){
     var hasIntervalStructure=w.laps&&w.laps.some(function(l){return l.phase==='Recupero';});
-    var medianPace,conversionFactor;
+    var medianPace,conversionFactor,weightMul=1,handled=false;
+    if(w.type==='Progressivo'){
+      // conta solo la parte finale veloce, con peso dimezzato: la media dell'uscita non è uno sforzo da gara
+      var pe=progressiveEffort(w);if(!pe)return;
+      medianPace=pe.pace;conversionFactor=1.03;weightMul=0.5;handled=true;
+    }else{
+      var qp=qualityPace(w);
+      if(qp&&qp.how==='lap veloci'){medianPace=qp.pace;conversionFactor=qp.interval?1.06:1.025;handled=true;}
+    }
 
-    if(hasIntervalStructure){
+    if(handled){/* passo e fattore già determinati sui soli tratti veloci */}
+    else if(hasIntervalStructure){
       // Discrete reps with recovery in between (fase esplicita da Garmin) — usa passo mediano dei tratti veloci
       var runLaps=w.laps.filter(function(l){return l.phase==='Corsa'||l.phase==='Ripetuta';});
       var paces=runLaps.map(function(l){return passoToSecs(l.passo);}).filter(function(p){return p>0&&p<400;});
@@ -4287,7 +4453,7 @@ function calcRacePrediction(){
     var predictedPace=medianPace*conversionFactor;
     var predicted=predictedPace*10;
     var daysAgo=(now-new Date(w.date))/86400000;
-    candidates.push({predicted:predicted,weight:recencyWeight(daysAgo)});
+    candidates.push({predicted:predicted,weight:recencyWeight(daysAgo)*weightMul});
   });
 
   if(!candidates.length)return null;
