@@ -204,6 +204,7 @@ td,th{padding:3px 4px;text-align:right}th:first-child,td:first-child{text-align:
           if(i<0){out.push(m+' m: non presente');return;}
           out.push(m+' m: '+arrKeys.map(function(k){var v=cv[k][i];return k+'='+(typeof v==='number'?Math.round(v*100)/100:v);}).join(', '));
         });
+        if(cv.paceModels&&cv.paceModels.length)out.push('paceModels[0]: '+JSON.stringify(cv.paceModels[0]).slice(0,900));
         row('ok','Migliori sforzi (ultimi 84 giorni)',out.join('\n'));
       }
     }catch(e){row('warn','Migliori sforzi (pace curve)',e.message);}
